@@ -2,6 +2,20 @@ package com.minjae.fitsleep2calendar;
 
 import com.google.android.gms.common.ConnectionResult;
 import com.google.android.gms.common.GoogleApiAvailability;
+import com.google.android.gms.common.Scopes;
+import com.google.android.gms.common.api.GoogleApiClient;
+import com.google.android.gms.common.api.PendingResult;
+import com.google.android.gms.common.api.Scope;
+import com.google.android.gms.fitness.Fitness;
+import com.google.android.gms.fitness.FitnessActivities;
+import com.google.android.gms.fitness.data.Bucket;
+import com.google.android.gms.fitness.data.DataPoint;
+import com.google.android.gms.fitness.data.DataSet;
+import com.google.android.gms.fitness.data.DataSource;
+import com.google.android.gms.fitness.data.DataType;
+import com.google.android.gms.fitness.data.Field;
+import com.google.android.gms.fitness.request.DataReadRequest;
+import com.google.android.gms.fitness.result.DataReadResult;
 import com.google.api.client.extensions.android.http.AndroidHttp;
 import com.google.api.client.googleapis.extensions.android.gms.auth.GoogleAccountCredential;
 import com.google.api.client.googleapis.extensions.android.gms.auth.GooglePlayServicesAvailabilityIOException;
@@ -12,26 +26,24 @@ import com.google.api.client.json.JsonFactory;
 import com.google.api.client.json.jackson2.JacksonFactory;
 import com.google.api.client.util.ExponentialBackOff;
 
-import com.google.api.client.util.Strings;
 import com.google.api.services.calendar.CalendarScopes;
 import com.google.api.client.util.DateTime;
 
 import com.google.api.services.calendar.model.*;
+import com.google.api.services.calendar.model.Calendar;
 
 import android.Manifest;
-import android.accounts.AccountManager;
 import android.app.Activity;
 import android.app.Dialog;
 import android.app.ProgressDialog;
 import android.content.Context;
-import android.content.Intent;
-import android.content.SharedPreferences;
 import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
 import android.os.AsyncTask;
 import android.os.Bundle;
-import android.preference.Preference;
 import android.support.annotation.NonNull;
+import android.support.v4.app.FragmentActivity;
+import android.support.v7.app.AppCompatActivity;
 import android.text.TextUtils;
 import android.text.method.ScrollingMovementMethod;
 import android.util.Log;
@@ -40,27 +52,33 @@ import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
+import java.text.DateFormat;
+import java.text.NumberFormat;
+import java.util.*;
+import java.util.concurrent.TimeUnit;
 
 import pub.devrel.easypermissions.AfterPermissionGranted;
 import pub.devrel.easypermissions.EasyPermissions;
 
-public class MainActivity extends Activity
+import static java.text.DateFormat.getTimeInstance;
+
+public class MainActivity extends AppCompatActivity
         implements EasyPermissions.PermissionCallbacks {
     GoogleAccountCredential mCredential;
     private TextView mOutputText;
-    private Button mCallApiButton, mGetCalendarList, mAddEvent;
+    private Button mCallApiButton, mGetCalendarList, mAddEvent, mGetFitData;
+    private PendingResult<DataReadResult> pendingResult = null;
+    private GoogleApiClient client = null;
     ProgressDialog mProgress;
 
     static final int REQUEST_ACCOUNT_PICKER = 1000;
     static final int REQUEST_AUTHORIZATION = 1001;
     static final int REQUEST_GOOGLE_PLAY_SERVICES = 1002;
     static final int REQUEST_PERMISSION_GET_ACCOUNTS = 1003;
-    static final int REQUEST_CALENDAR_LIST = 1004;
+    static final String TAG = "Fitsleep2Calendar";
 
     private static final String BUTTON_TEXT = "Call Google Calendar API";
     private static final String PREF_ACCOUNT_NAME = "accountName";
@@ -74,6 +92,19 @@ public class MainActivity extends Activity
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        initView();
+
+        // Initialize credentials and service object.
+        mCredential = GoogleAccountCredential.usingOAuth2(
+                getApplicationContext(), Arrays.asList(SCOPES))
+                .setBackOff(new ExponentialBackOff());
+
+
+
+    }
+
+    //ActivityView 초기화
+    private void initView(){
         LinearLayout activityLayout = new LinearLayout(this);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
@@ -114,6 +145,23 @@ public class MainActivity extends Activity
         });
         activityLayout.addView(mGetCalendarList);
 
+        mGetFitData = new Button(this);
+        mGetFitData.setText("GetFitData");
+        mGetFitData.setTag("GetFitData");
+        mGetFitData.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                mGetFitData.setEnabled(false);
+                mOutputText.setText("");
+                if(client == null){
+                    fitDataReadRequest();
+                }
+                new FitData().execute();
+                mGetFitData.setEnabled(true);
+            }
+        });
+        activityLayout.addView(mGetFitData);
+
         mAddEvent = new Button(this);
         mAddEvent.setText("Add Event");
         mAddEvent.setTag("mAddEvent");
@@ -141,13 +189,51 @@ public class MainActivity extends Activity
         mProgress.setMessage("Calling Google Calendar API ...");
 
         setContentView(activityLayout);
-
-        // Initialize credentials and service object.
-        mCredential = GoogleAccountCredential.usingOAuth2(
-                getApplicationContext(), Arrays.asList(SCOPES))
-                .setBackOff(new ExponentialBackOff());
     }
+    //todo 새 스레드로 옮겨야한다.
+    private void fitDataReadRequest(){
+//        DataReadRequest dataReadRequest =  new DataReadRequest.Builder().setTimeRange(Date.UTC(2017,2,1,0,0,0),Date.UTC(2017,2,2,0,0,0),TimeUnit.MILLISECONDS)
+//                .read(DataType.TYPE_ACTIVITY_SAMPLES)
+////                .bucketByTime(1, TimeUnit.HOURS)
+////                .aggregate(DataType.TYPE_LOCATION_SAMPLE, DataType.AGGREGATE_LOCATION_BOUNDING_BOX)
+//                .build();
+//        DataSource dataSource = dataReadRequest.getActivityDataSource();
+//        mOutputText.setText(dataSource.getName());
+        client = new GoogleApiClient.Builder(getApplicationContext())
+                .addApi(Fitness.HISTORY_API).addScope(new Scope(Scopes.FITNESS_ACTIVITY_READ))
+                .addConnectionCallbacks(
+                        new GoogleApiClient.ConnectionCallbacks() {
+                            @Override
+                            public void onConnected(Bundle bundle) {
+                                Log.i(TAG, "Connected!!!");
+                                // Now you can make calls to the Fitness APIs.
 
+                            }
+
+                            @Override
+                            public void onConnectionSuspended(int i) {
+                                // If your connection to the sensor gets lost at some point,
+                                // you'll be able to determine the reason and react to it here.
+                                if (i == GoogleApiClient.ConnectionCallbacks.CAUSE_NETWORK_LOST) {
+                                    Log.i(TAG, "Connection lost.  Cause: Network Lost.");
+                                } else if (i
+                                        == GoogleApiClient.ConnectionCallbacks.CAUSE_SERVICE_DISCONNECTED) {
+                                    Log.i(TAG,
+                                            "Connection lost.  Reason: Service Disconnected");
+                                }
+                            }
+                        }
+                )
+                .enableAutoManage(this, 0, new GoogleApiClient.OnConnectionFailedListener() {
+                    @Override
+                    public void onConnectionFailed(ConnectionResult result) {
+                        Log.i(TAG, "Google Play services connection failed. Cause: " +
+                                result.toString());
+                        Toast.makeText(getApplicationContext(), "Exception while connecting to Google Play services: " + result.getErrorMessage(), Toast.LENGTH_SHORT).show();
+                    }
+                })
+                .build();
+    }
 
     /**
      * Attempt to call the API, after verifying that all the preconditions are
@@ -382,15 +468,22 @@ public class MainActivity extends Activity
         @Override
         protected List<String> doInBackground(String... params) {
             try {
+                //버튼에서 나오는 태그로 액션 판별
                 List<String> list = new ArrayList<>();
+
                 if(params[0].equals("GetCalendarList")){
+                    //캘린더 목록 받아오기
                     return getCalendarList();
                 } else if(params[0].equals("CallAPI"))
                 {
+                    //캘린더 내용 받아오기(샘플코드)
                     return getDataFromApi();
                 } else {
-                    String calendarID = getSleepCalendarID("Sleep");
+                    //캘린더에 일정 등록
+                    //Sleep Summary의 캘린더ID를 받아온다.
+                    String calendarID = getCalendarID("Sleep");
                     if(calendarID == null) {
+                        //만약 Sleep이라는 Summary의 캘린더가 없으면 만든다.
                         Calendar calendar = new Calendar();
                         calendar.setSummary("Sleep");
                         calendar.setTimeZone("Asia/Seoul");
@@ -398,7 +491,9 @@ public class MainActivity extends Activity
                         calendarID = createdCalendar.getId();
                         list.add("Calendar Created : " + calendarID);
                     }
+                    //이벤트 생성
                     Event event = makeEvent("sleep", null, "2017-02-23T03:00:00+09:00", "2017-02-23T11:00:00+09:00", "Asia/Seoul");
+                    //addEvent에 캘린더ID, 이벤트 전달. 이벤트가 중복인지 확인한다
                     list.add(addEvent(calendarID, event, true));
                     return list;
                 }
@@ -410,7 +505,8 @@ public class MainActivity extends Activity
             }
         }
 
-        //CalendarList를 전부 받아옴
+        //CalendarList를 받아옴
+        //Todo, 토큰을 이용해 여러개 받아올 수 있도록
         private List<String> getCalendarList() throws IOException {
             List<String> list = new ArrayList<>();
             CalendarList calendarList =  mService.calendarList().list().execute();
@@ -421,7 +517,8 @@ public class MainActivity extends Activity
             return list;
         }
 
-        private String getSleepCalendarID(String summaryName) throws IOException{
+        //Summary몀으로 캘린더 ID를 받아옴
+        private String getCalendarID(String summaryName) throws IOException{
             CalendarList calendarList =  mService.calendarList().list().execute();
             List<CalendarListEntry> items = calendarList.getItems();
             for(CalendarListEntry calendarListEList : items){
@@ -432,10 +529,13 @@ public class MainActivity extends Activity
             return null;
         }
 
-        //캘린더 ID, 완성된 이벤트, 중복 이벤트 체크여부
+        //이벤트를 캘린더에 등록하는 함수. 이벤트의 등록 결과를 String형태로 반환한다.
+        //캘린더 ID, 이벤트, 중복 이벤트 체크여부를 받아옴.
         private String addEvent(String calendarID, Event event, boolean duplicationCheck) throws IOException {
+            //ID가 없으면 주 캘린더에 등록한다
             if (calendarID == null) calendarID = "primary";
 
+            //중복체크여부와 이벤트의 중복여부를 구분한다.
             if (duplicationCheck && isEventExist(calendarID,event)){
                 //중복 체크를 하고, 일정이 중복될경우
                 return String.format("%s : %s~%s isExist",event.getSummary(), event.getStart().getDateTime().toString(), event.getEnd().getDateTime().toString());
@@ -448,7 +548,6 @@ public class MainActivity extends Activity
 
         //같은 일정이 존재하는지 체크.
         private boolean isEventExist(String calendarID, Event event) throws IOException{
-            //이벤트 Organizer Email이 캘린더ID
             Events events = mService.events().list(calendarID).execute();
             List<Event> items = events.getItems();
             for(Event gettedEvent : items){
@@ -462,7 +561,7 @@ public class MainActivity extends Activity
             return false;
         }
 
-        //Event에 이름, 설명, 시작/끝/타임존 정도 받아옴.
+        //Event에 이름, 설명, 시작/끝/타임존을 받아옴.
         private Event makeEvent(String name, String description, String startTime, String endTime, String timeZone){
             Event event = new Event().setSummary(name).setDescription(description);
             DateTime startDateTime = new DateTime(startTime);
@@ -544,6 +643,57 @@ public class MainActivity extends Activity
                 mOutputText.setText("Request cancelled.");
             }
         }
-}
+    }
+    private class FitData extends AsyncTask<Void,Void,DataSet>{
+
+        @Override
+        protected DataSet doInBackground(Void... params) {
+
+            java.util.Calendar cal = java.util.Calendar.getInstance();
+            Date now = new Date();
+            cal.setTime(now);
+            long endTime = cal.getTimeInMillis();
+            cal.add(java.util.Calendar.WEEK_OF_YEAR, -1);
+            long startTime = cal.getTimeInMillis();
+
+            java.text.DateFormat dateFormat = DateFormat.getDateInstance();
+            Log.i(TAG, "Range Start: " + dateFormat.format(startTime));
+            Log.i(TAG, "Range End: " + dateFormat.format(endTime));
+
+            PendingResult<DataReadResult> pendingResult = Fitness.HistoryApi.readData(
+                    client,
+                    new DataReadRequest.Builder()
+                            .read(DataType.TYPE_ACTIVITY_SEGMENT)
+                            .setTimeRange(startTime, endTime, TimeUnit.MILLISECONDS)
+                            .build());
+
+            DataReadResult readDataResult = pendingResult.await();
+            DataSet dataSet = readDataResult.getDataSet(DataType.TYPE_ACTIVITY_SEGMENT);
+            return dataSet;
+        }
+
+        @Override
+        protected void onPostExecute(DataSet dataReadResult) {
+            super.onPostExecute(dataReadResult);
+            dumpDataSet(dataReadResult);
+        }
+
+        //데이터셋을 출력.
+        private void dumpDataSet(DataSet dataSet) {
+            mOutputText.append("Data returned for Data type: " + dataSet.getDataType().getName() + "\n");
+            DateFormat dateFormat = getTimeInstance();
+
+            for (DataPoint dp : dataSet.getDataPoints()) {
+                mOutputText.append("Data point:");
+                mOutputText.append("\tType: " + dp.getDataType().getName() + "\n");
+                mOutputText.append("\tStart: " + new Date(dp.getStartTime(TimeUnit.MILLISECONDS)) + "\n");
+                mOutputText.append("\tEnd: " + new Date(dp.getEndTime(TimeUnit.MILLISECONDS)) + "\n");
+                for(Field field : dp.getDataType().getFields()) {
+                    mOutputText.append("\tField: " + field.getName() +
+                            " Value: " + dp.getValue(field) + "\n");
+                }
+            }
+        }
+    }
 }
 
