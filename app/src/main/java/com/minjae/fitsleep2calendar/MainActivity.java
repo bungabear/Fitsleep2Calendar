@@ -7,11 +7,8 @@ import com.google.android.gms.common.api.GoogleApiClient;
 import com.google.android.gms.common.api.PendingResult;
 import com.google.android.gms.common.api.Scope;
 import com.google.android.gms.fitness.Fitness;
-import com.google.android.gms.fitness.FitnessActivities;
-import com.google.android.gms.fitness.data.Bucket;
 import com.google.android.gms.fitness.data.DataPoint;
 import com.google.android.gms.fitness.data.DataSet;
-import com.google.android.gms.fitness.data.DataSource;
 import com.google.android.gms.fitness.data.DataType;
 import com.google.android.gms.fitness.data.Field;
 import com.google.android.gms.fitness.request.DataReadRequest;
@@ -33,7 +30,6 @@ import com.google.api.services.calendar.model.*;
 import com.google.api.services.calendar.model.Calendar;
 
 import android.Manifest;
-import android.app.Activity;
 import android.app.Dialog;
 import android.app.ProgressDialog;
 import android.content.Context;
@@ -42,7 +38,6 @@ import android.net.NetworkInfo;
 import android.os.AsyncTask;
 import android.os.Bundle;
 import android.support.annotation.NonNull;
-import android.support.v4.app.FragmentActivity;
 import android.support.v7.app.AppCompatActivity;
 import android.text.TextUtils;
 import android.text.method.ScrollingMovementMethod;
@@ -56,7 +51,6 @@ import android.widget.Toast;
 
 import java.io.IOException;
 import java.text.DateFormat;
-import java.text.NumberFormat;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
 
@@ -65,6 +59,7 @@ import pub.devrel.easypermissions.EasyPermissions;
 
 import static java.text.DateFormat.getTimeInstance;
 
+//Todo 두개의 AsyncTask를 통합해야하는지 고려해봐야한다.
 public class MainActivity extends AppCompatActivity
         implements EasyPermissions.PermissionCallbacks {
     GoogleAccountCredential mCredential;
@@ -154,7 +149,7 @@ public class MainActivity extends AppCompatActivity
                 mGetFitData.setEnabled(false);
                 mOutputText.setText("");
                 if(client == null){
-                    fitDataReadRequest();
+                    connectGoogleFit();
                 }
                 new FitData().execute();
                 mGetFitData.setEnabled(true);
@@ -190,15 +185,8 @@ public class MainActivity extends AppCompatActivity
 
         setContentView(activityLayout);
     }
-    //todo 새 스레드로 옮겨야한다.
-    private void fitDataReadRequest(){
-//        DataReadRequest dataReadRequest =  new DataReadRequest.Builder().setTimeRange(Date.UTC(2017,2,1,0,0,0),Date.UTC(2017,2,2,0,0,0),TimeUnit.MILLISECONDS)
-//                .read(DataType.TYPE_ACTIVITY_SAMPLES)
-////                .bucketByTime(1, TimeUnit.HOURS)
-////                .aggregate(DataType.TYPE_LOCATION_SAMPLE, DataType.AGGREGATE_LOCATION_BOUNDING_BOX)
-//                .build();
-//        DataSource dataSource = dataReadRequest.getActivityDataSource();
-//        mOutputText.setText(dataSource.getName());
+    private void connectGoogleFit(){
+
         client = new GoogleApiClient.Builder(getApplicationContext())
                 .addApi(Fitness.HISTORY_API).addScope(new Scope(Scopes.FITNESS_ACTIVITY_READ))
                 .addConnectionCallbacks(
@@ -506,7 +494,7 @@ public class MainActivity extends AppCompatActivity
         }
 
         //CalendarList를 받아옴
-        //Todo, 토큰을 이용해 여러개 받아올 수 있도록
+        //Todo, 토큰을 이용해 여러개 받아올 수 있도록 수정 요망.
         private List<String> getCalendarList() throws IOException {
             List<String> list = new ArrayList<>();
             CalendarList calendarList =  mService.calendarList().list().execute();
@@ -517,7 +505,7 @@ public class MainActivity extends AppCompatActivity
             return list;
         }
 
-        //Summary몀으로 캘린더 ID를 받아옴
+        //Summary명으로 캘린더 ID를 받아옴
         private String getCalendarID(String summaryName) throws IOException{
             CalendarList calendarList =  mService.calendarList().list().execute();
             List<CalendarListEntry> items = calendarList.getItems();
@@ -644,15 +632,18 @@ public class MainActivity extends AppCompatActivity
             }
         }
     }
+    //Google Fit에서 데이터를 받아오는 스레드.
     private class FitData extends AsyncTask<Void,Void,DataSet>{
 
         @Override
         protected DataSet doInBackground(Void... params) {
 
+            //받아올 기간을 설정한다.
             java.util.Calendar cal = java.util.Calendar.getInstance();
             Date now = new Date();
             cal.setTime(now);
             long endTime = cal.getTimeInMillis();
+            //1주일
             cal.add(java.util.Calendar.WEEK_OF_YEAR, -1);
             long startTime = cal.getTimeInMillis();
 
@@ -660,6 +651,10 @@ public class MainActivity extends AppCompatActivity
             Log.i(TAG, "Range Start: " + dateFormat.format(startTime));
             Log.i(TAG, "Range End: " + dateFormat.format(endTime));
 
+            //DataReadResult를 빌드한다. DataType을 바꿔 다른 정보를 받아 올 수 있음.
+            //수면 정보는 ACTIVITY에 속해있다.
+            //Todo ACTIVITY를 받아오는 플래그가 몇가지 있어서 테스트 요망.
+            //Segment면 충분하긴하다.
             PendingResult<DataReadResult> pendingResult = Fitness.HistoryApi.readData(
                     client,
                     new DataReadRequest.Builder()
@@ -679,6 +674,9 @@ public class MainActivity extends AppCompatActivity
         }
 
         //데이터셋을 출력.
+        //Todo 액티비티 타입을 구분하고, 통합 기능 추가해야한다. 통합시 Awake에 대한 별도 처리가 필요할듯 하다.
+        //Sleeping : 72, Light Sleep : 109, Deep Sleep : 110, REM Sellp : 111, Awake(during sleep) : 112
+        //액티비티 타입 참고링크 https://developers.google.com/fit/rest/v1/reference/activity-types
         private void dumpDataSet(DataSet dataSet) {
             mOutputText.append("Data returned for Data type: " + dataSet.getDataType().getName() + "\n");
             DateFormat dateFormat = getTimeInstance();
