@@ -12,6 +12,7 @@ import com.google.api.client.json.JsonFactory;
 import com.google.api.client.json.jackson2.JacksonFactory;
 import com.google.api.client.util.ExponentialBackOff;
 
+import com.google.api.client.util.Strings;
 import com.google.api.services.calendar.CalendarScopes;
 import com.google.api.client.util.DateTime;
 
@@ -29,6 +30,7 @@ import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
 import android.os.AsyncTask;
 import android.os.Bundle;
+import android.preference.Preference;
 import android.support.annotation.NonNull;
 import android.text.TextUtils;
 import android.text.method.ScrollingMovementMethod;
@@ -51,17 +53,18 @@ public class MainActivity extends Activity
         implements EasyPermissions.PermissionCallbacks {
     GoogleAccountCredential mCredential;
     private TextView mOutputText;
-    private Button mCallApiButton;
+    private Button mCallApiButton, mGetCalendarList, mAddEvent;
     ProgressDialog mProgress;
 
     static final int REQUEST_ACCOUNT_PICKER = 1000;
     static final int REQUEST_AUTHORIZATION = 1001;
     static final int REQUEST_GOOGLE_PLAY_SERVICES = 1002;
     static final int REQUEST_PERMISSION_GET_ACCOUNTS = 1003;
+    static final int REQUEST_CALENDAR_LIST = 1004;
 
     private static final String BUTTON_TEXT = "Call Google Calendar API";
     private static final String PREF_ACCOUNT_NAME = "accountName";
-    private static final String[] SCOPES = {CalendarScopes.CALENDAR_READONLY};
+    private static final String[] SCOPES = {CalendarScopes.CALENDAR};
 
     /**
      * Create the main activity.
@@ -85,16 +88,45 @@ public class MainActivity extends Activity
 
         mCallApiButton = new Button(this);
         mCallApiButton.setText(BUTTON_TEXT);
+        mCallApiButton.setTag("CallAPI");
         mCallApiButton.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 mCallApiButton.setEnabled(false);
                 mOutputText.setText("");
-                getResultsFromApi();
+                getResultsFromApi((String)v.getTag());
                 mCallApiButton.setEnabled(true);
             }
         });
         activityLayout.addView(mCallApiButton);
+
+        mGetCalendarList = new Button(this);
+        mGetCalendarList.setText("GetCalendarList");
+        mGetCalendarList.setTag("GetCalendarList");
+        mGetCalendarList.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                mGetCalendarList.setEnabled(false);
+                mOutputText.setText("");
+                getResultsFromApi((String)v.getTag());
+                mGetCalendarList.setEnabled(true);
+            }
+        });
+        activityLayout.addView(mGetCalendarList);
+
+        mAddEvent = new Button(this);
+        mAddEvent.setText("Add Event");
+        mAddEvent.setTag("mAddEvent");
+        mAddEvent.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                mAddEvent.setEnabled(false);
+                mOutputText.setText("");
+                getResultsFromApi((String)v.getTag());
+                mAddEvent.setEnabled(true);
+            }
+        });
+        activityLayout.addView(mAddEvent);
 
         mOutputText = new TextView(this);
         mOutputText.setLayoutParams(tlp);
@@ -124,15 +156,15 @@ public class MainActivity extends Activity
      * of the preconditions are not satisfied, the app will prompt the user as
      * appropriate.
      */
-    private void getResultsFromApi() {
+    private void getResultsFromApi(String tag) {
         if (!isGooglePlayServicesAvailable()) {
             acquireGooglePlayServices();
         } else if (mCredential.getSelectedAccountName() == null) {
-            chooseAccount();
+            chooseAccount(tag);
         } else if (!isDeviceOnline()) {
             mOutputText.setText("No network connection available.");
         } else {
-            new MakeRequestTask(mCredential).execute();
+            new MakeRequestTask(mCredential).execute(tag);
         }
     }
 
@@ -147,14 +179,14 @@ public class MainActivity extends Activity
      * is granted.
      */
     @AfterPermissionGranted(REQUEST_PERMISSION_GET_ACCOUNTS)
-    private void chooseAccount() {
+    private void chooseAccount(String tag) {
         if (EasyPermissions.hasPermissions(
                 this, Manifest.permission.GET_ACCOUNTS)) {
             String accountName = getPreferences(Context.MODE_PRIVATE)
                     .getString(PREF_ACCOUNT_NAME, null);
             if (accountName != null) {
                 mCredential.setSelectedAccountName(accountName);
-                getResultsFromApi();
+                getResultsFromApi(tag);
             } else {
                 // Start a dialog from which the user can choose an account
                 startActivityForResult(
@@ -171,54 +203,57 @@ public class MainActivity extends Activity
         }
     }
 
-    /**
-     * Called when an activity launched here (specifically, AccountPicker
-     * and authorization) exits, giving you the requestCode you started it with,
-     * the resultCode it returned, and any additional data from it.
-     *
-     * @param requestCode code indicating which activity result is incoming.
-     * @param resultCode  code indicating the result of the incoming
-     *                    activity result.
-     * @param data        Intent (containing result data) returned by incoming
-     *                    activity result.
-     */
-    @Override
-    protected void onActivityResult(
-            int requestCode, int resultCode, Intent data) {
-        super.onActivityResult(requestCode, resultCode, data);
-        switch (requestCode) {
-            case REQUEST_GOOGLE_PLAY_SERVICES:
-                if (resultCode != RESULT_OK) {
-                    mOutputText.setText(
-                            "This app requires Google Play Services. Please install " +
-                                    "Google Play Services on your device and relaunch this app.");
-                } else {
-                    getResultsFromApi();
-                }
-                break;
-            case REQUEST_ACCOUNT_PICKER:
-                if (resultCode == RESULT_OK && data != null &&
-                        data.getExtras() != null) {
-                    String accountName =
-                            data.getStringExtra(AccountManager.KEY_ACCOUNT_NAME);
-                    if (accountName != null) {
-                        SharedPreferences settings =
-                                getPreferences(Context.MODE_PRIVATE);
-                        SharedPreferences.Editor editor = settings.edit();
-                        editor.putString(PREF_ACCOUNT_NAME, accountName);
-                        editor.apply();
-                        mCredential.setSelectedAccountName(accountName);
-                        getResultsFromApi();
-                    }
-                }
-                break;
-            case REQUEST_AUTHORIZATION:
-                if (resultCode == RESULT_OK) {
-                    getResultsFromApi();
-                }
-                break;
-        }
-    }
+//    /**
+//     * Called when an activity launched here (specifically, AccountPicker
+//     * and authorization) exits, giving you the requestCode you started it with,
+//     * the resultCode it returned, and any additional data from it.
+//     *
+//     * @param requestCode code indicating which activity result is incoming.
+//     * @param resultCode  code indicating the result of the incoming
+//     *                    activity result.
+//     * @param data        Intent (containing result data) returned by incoming
+//     *                    activity result.
+//     */
+//    @Override
+//    protected void onActivityResult(
+//            int requestCode, int resultCode, Intent data) {
+//        super.onActivityResult(requestCode, resultCode, data);
+//        switch (requestCode) {
+//            case REQUEST_GOOGLE_PLAY_SERVICES:
+//                if (resultCode != RESULT_OK) {
+//                    mOutputText.setText(
+//                            "This app requires Google Play Services. Please install " +
+//                                    "Google Play Services on your device and relaunch this app.");
+//                } else {
+//                    getResultsFromApi("CallAPI");
+//                }
+//                break;
+//            case REQUEST_ACCOUNT_PICKER:
+//                if (resultCode == RESULT_OK && data != null &&
+//                        data.getExtras() != null) {
+//                    String accountName =
+//                            data.getStringExtra(AccountManager.KEY_ACCOUNT_NAME);
+//                    if (accountName != null) {
+//                        SharedPreferences settings =
+//                                getPreferences(Context.MODE_PRIVATE);
+//                        SharedPreferences.Editor editor = settings.edit();
+//                        editor.putString(PREF_ACCOUNT_NAME, accountName);
+//                        editor.apply();
+//                        mCredential.setSelectedAccountName(accountName);
+//                        getResultsFromApi("CallAPI");
+//                    }
+//                }
+//                break;
+//            case REQUEST_AUTHORIZATION:
+//                if (resultCode == RESULT_OK) {
+//                    getResultsFromApi("CallAPI");
+//                }
+//                break;
+//            case REQUEST_CALENDAR_LIST:
+//                    getResultsFromApi("getCalendarList");
+//                break;
+//        }
+//    }
 
     /**
      * Respond to requests for permissions at runtime for API 23 and above.
@@ -326,7 +361,7 @@ public class MainActivity extends Activity
      * An asynchronous task that handles the Google Calendar API call.
      * Placing the API calls in their own task ensures the UI stays responsive.
      */
-    private class MakeRequestTask extends AsyncTask<Void, Void, List<String>> {
+    private class MakeRequestTask extends AsyncTask<String, Void, List<String>> {
         private com.google.api.services.calendar.Calendar mService = null;
         private Exception mLastError = null;
 
@@ -335,7 +370,7 @@ public class MainActivity extends Activity
             JsonFactory jsonFactory = JacksonFactory.getDefaultInstance();
             mService = new com.google.api.services.calendar.Calendar.Builder(
                     transport, jsonFactory, credential)
-                    .setApplicationName("Google Calendar API Android Quickstart")
+                    .setApplicationName("Fitsleep2Calendar")
                     .build();
         }
 
@@ -345,14 +380,97 @@ public class MainActivity extends Activity
          * @param params no parameters needed for this task.
          */
         @Override
-        protected List<String> doInBackground(Void... params) {
+        protected List<String> doInBackground(String... params) {
             try {
-                return getDataFromApi();
+                List<String> list = new ArrayList<>();
+                if(params[0].equals("GetCalendarList")){
+                    return getCalendarList();
+                } else if(params[0].equals("CallAPI"))
+                {
+                    return getDataFromApi();
+                } else {
+                    String calendarID = getSleepCalendarID("Sleep");
+                    if(calendarID == null) {
+                        Calendar calendar = new Calendar();
+                        calendar.setSummary("Sleep");
+                        calendar.setTimeZone("Asia/Seoul");
+                        Calendar createdCalendar = mService.calendars().insert(calendar).execute();
+                        calendarID = createdCalendar.getId();
+                        list.add("Calendar Created : " + calendarID);
+                    }
+                    Event event = makeEvent("sleep", null, "2017-02-23T03:00:00+09:00", "2017-02-23T11:00:00+09:00", "Asia/Seoul");
+                    list.add(addEvent(calendarID, event, true));
+                    return list;
+                }
+
             } catch (Exception e) {
                 mLastError = e;
                 cancel(true);
                 return null;
             }
+        }
+
+        //CalendarList를 전부 받아옴
+        private List<String> getCalendarList() throws IOException {
+            List<String> list = new ArrayList<>();
+            CalendarList calendarList =  mService.calendarList().list().execute();
+            List<CalendarListEntry> items = calendarList.getItems();
+            for(CalendarListEntry calendarListEList : items){
+                list.add(String.format("%s : %s",calendarListEList.getSummary(), calendarListEList.getId()));
+            }
+            return list;
+        }
+
+        private String getSleepCalendarID(String summaryName) throws IOException{
+            CalendarList calendarList =  mService.calendarList().list().execute();
+            List<CalendarListEntry> items = calendarList.getItems();
+            for(CalendarListEntry calendarListEList : items){
+                if (calendarListEList.getSummary().equals(summaryName)){
+                    return calendarListEList.getId();
+                }
+            }
+            return null;
+        }
+
+        //캘린더 ID, 완성된 이벤트, 중복 이벤트 체크여부
+        private String addEvent(String calendarID, Event event, boolean duplicationCheck) throws IOException {
+            if (calendarID == null) calendarID = "primary";
+
+            if (duplicationCheck && isEventExist(calendarID,event)){
+                //중복 체크를 하고, 일정이 중복될경우
+                return String.format("%s : %s~%s isExist",event.getSummary(), event.getStart().getDateTime().toString(), event.getEnd().getDateTime().toString());
+            } else {
+                //중복되지 않거나 중복체크를 안할경우.
+                event = mService.events().insert(calendarID, event).execute();
+                return String.format("%s : %s~%s is Success",event.getSummary(), event.getStart().getDateTime().toString(), event.getEnd().getDateTime().toString());
+            }
+        }
+
+        //같은 일정이 존재하는지 체크.
+        private boolean isEventExist(String calendarID, Event event) throws IOException{
+            //이벤트 Organizer Email이 캘린더ID
+            Events events = mService.events().list(calendarID).execute();
+            List<Event> items = events.getItems();
+            for(Event gettedEvent : items){
+                //이름, 시작/종료가 같은 이벤트가 있는지
+                if(gettedEvent.getSummary().equals(event.getSummary())
+                        && gettedEvent.getStart().equals(event.getStart())
+                        && gettedEvent.getEnd().equals(event.getEnd())){
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        //Event에 이름, 설명, 시작/끝/타임존 정도 받아옴.
+        private Event makeEvent(String name, String description, String startTime, String endTime, String timeZone){
+            Event event = new Event().setSummary(name).setDescription(description);
+            DateTime startDateTime = new DateTime(startTime);
+            event.setStart(new EventDateTime().setDateTime(startDateTime).setTimeZone(timeZone));
+            DateTime endDateTime = new DateTime(endTime);
+            event.setEnd(new EventDateTime().setDateTime(endDateTime).setTimeZone(timeZone));
+
+            return event;
         }
 
         /**
@@ -426,6 +544,6 @@ public class MainActivity extends Activity
                 mOutputText.setText("Request cancelled.");
             }
         }
-    }
+}
 }
 
