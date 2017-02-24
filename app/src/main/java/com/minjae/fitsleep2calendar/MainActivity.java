@@ -7,6 +7,7 @@ import com.google.android.gms.common.api.GoogleApiClient;
 import com.google.android.gms.common.api.PendingResult;
 import com.google.android.gms.common.api.Scope;
 import com.google.android.gms.fitness.Fitness;
+import com.google.android.gms.fitness.data.Bucket;
 import com.google.android.gms.fitness.data.DataPoint;
 import com.google.android.gms.fitness.data.DataSet;
 import com.google.android.gms.fitness.data.DataType;
@@ -30,9 +31,14 @@ import com.google.api.services.calendar.model.*;
 import com.google.api.services.calendar.model.Calendar;
 
 import android.Manifest;
+import android.accounts.AccountManager;
 import android.app.Dialog;
 import android.app.ProgressDialog;
+import android.content.ContentValues;
 import android.content.Context;
+import android.content.Intent;
+import android.content.SharedPreferences;
+import android.database.sqlite.SQLiteDatabase;
 import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
 import android.os.AsyncTask;
@@ -59,14 +65,16 @@ import pub.devrel.easypermissions.EasyPermissions;
 
 import static java.text.DateFormat.getTimeInstance;
 
-//Todo 두개의 AsyncTask를 통합해야하는지 고려해봐야한다.
+// Todo 두개의 AsyncTask를 통합해야하는지 고려해봐야한다.
 public class MainActivity extends AppCompatActivity
         implements EasyPermissions.PermissionCallbacks {
     GoogleAccountCredential mCredential;
     private TextView mOutputText;
-    private Button mCallApiButton, mGetCalendarList, mAddEvent, mGetFitData;
+    private Button mCallApiButton, mGetCalendarList, mAddEvent, mDeleteEvent, mGetFitData;
     private PendingResult<DataReadResult> pendingResult = null;
     private GoogleApiClient client = null;
+    private mSQLiteOpenHelper mDBHelper = null;
+    private SQLiteDatabase db = null;
     ProgressDialog mProgress;
 
     static final int REQUEST_ACCOUNT_PICKER = 1000;
@@ -94,7 +102,18 @@ public class MainActivity extends AppCompatActivity
                 getApplicationContext(), Arrays.asList(SCOPES))
                 .setBackOff(new ExponentialBackOff());
 
+        mDBHelper = new mSQLiteOpenHelper(getApplicationContext());
+        db = mDBHelper.getWritableDatabase();
 
+        // Todo 아래 예제를 이용해 Fit값 불러다 넣기.
+        // Todo 디버깅 및 추후 데이터 표시를 위해 CustomListView만들기.
+//        // Create a new map of values, where column names are the keys
+//        ContentValues values = new ContentValues();
+//        values.put(DBFitSleepSegmentTable.ACATIVITY_NAME, 123);
+//        values.put(DBFitSleepSegmentTable.CARENDAR_EVENT_ID, "asdfgaggfgadfg");
+//
+//        // Insert the new row, returning the primary key value of the new row
+//        long newRowId = db.insert(DBFitSleepSegmentTable.TABLE_NAME, null, values);
 
     }
 
@@ -149,7 +168,7 @@ public class MainActivity extends AppCompatActivity
                 mGetFitData.setEnabled(false);
                 mOutputText.setText("");
                 if(client == null){
-                    connectGoogleFit();
+                    buildGoogleFitClient();
                 }
                 new FitData().execute();
                 mGetFitData.setEnabled(true);
@@ -171,6 +190,20 @@ public class MainActivity extends AppCompatActivity
         });
         activityLayout.addView(mAddEvent);
 
+        mDeleteEvent = new Button(this);
+        mDeleteEvent.setText("Delete Event");
+        mDeleteEvent.setTag("mDeleteEvent");
+        mDeleteEvent.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                mDeleteEvent.setEnabled(false);
+                mOutputText.setText("");
+                getResultsFromApi((String)v.getTag());
+                mDeleteEvent.setEnabled(true);
+            }
+        });
+        activityLayout.addView(mDeleteEvent);
+
         mOutputText = new TextView(this);
         mOutputText.setLayoutParams(tlp);
         mOutputText.setPadding(16, 16, 16, 16);
@@ -185,8 +218,9 @@ public class MainActivity extends AppCompatActivity
 
         setContentView(activityLayout);
     }
-    private void connectGoogleFit(){
 
+    private void buildGoogleFitClient(){
+        Log.i(TAG, "Trying to build GoogleFit client");
         client = new GoogleApiClient.Builder(getApplicationContext())
                 .addApi(Fitness.HISTORY_API).addScope(new Scope(Scopes.FITNESS_ACTIVITY_READ))
                 .addConnectionCallbacks(
@@ -195,7 +229,6 @@ public class MainActivity extends AppCompatActivity
                             public void onConnected(Bundle bundle) {
                                 Log.i(TAG, "Connected!!!");
                                 // Now you can make calls to the Fitness APIs.
-
                             }
 
                             @Override
@@ -221,6 +254,8 @@ public class MainActivity extends AppCompatActivity
                     }
                 })
                 .build();
+
+        Log.d(TAG, "buildGoogleFitClient: " + client);
     }
 
     /**
@@ -277,57 +312,60 @@ public class MainActivity extends AppCompatActivity
         }
     }
 
-//    /**
-//     * Called when an activity launched here (specifically, AccountPicker
-//     * and authorization) exits, giving you the requestCode you started it with,
-//     * the resultCode it returned, and any additional data from it.
-//     *
-//     * @param requestCode code indicating which activity result is incoming.
-//     * @param resultCode  code indicating the result of the incoming
-//     *                    activity result.
-//     * @param data        Intent (containing result data) returned by incoming
-//     *                    activity result.
-//     */
-//    @Override
-//    protected void onActivityResult(
-//            int requestCode, int resultCode, Intent data) {
-//        super.onActivityResult(requestCode, resultCode, data);
-//        switch (requestCode) {
-//            case REQUEST_GOOGLE_PLAY_SERVICES:
-//                if (resultCode != RESULT_OK) {
-//                    mOutputText.setText(
-//                            "This app requires Google Play Services. Please install " +
-//                                    "Google Play Services on your device and relaunch this app.");
-//                } else {
-//                    getResultsFromApi("CallAPI");
-//                }
-//                break;
-//            case REQUEST_ACCOUNT_PICKER:
-//                if (resultCode == RESULT_OK && data != null &&
-//                        data.getExtras() != null) {
-//                    String accountName =
-//                            data.getStringExtra(AccountManager.KEY_ACCOUNT_NAME);
-//                    if (accountName != null) {
-//                        SharedPreferences settings =
-//                                getPreferences(Context.MODE_PRIVATE);
-//                        SharedPreferences.Editor editor = settings.edit();
-//                        editor.putString(PREF_ACCOUNT_NAME, accountName);
-//                        editor.apply();
-//                        mCredential.setSelectedAccountName(accountName);
-//                        getResultsFromApi("CallAPI");
-//                    }
-//                }
-//                break;
-//            case REQUEST_AUTHORIZATION:
-//                if (resultCode == RESULT_OK) {
-//                    getResultsFromApi("CallAPI");
-//                }
-//                break;
+    /**
+     * Called when an activity launched here (specifically, AccountPicker
+     * and authorization) exits, giving you the requestCode you started it with,
+     * the resultCode it returned, and any additional data from it.
+     *
+     * @param requestCode code indicating which activity result is incoming.
+     * @param resultCode  code indicating the result of the incoming
+     *                    activity result.
+     * @param data        Intent (containing result data) returned by incoming
+     *                    activity result.
+     */
+
+    // 처음 사용자게에 캘린더 계정 선택 및 권한부여할때 필요한 부분이다.
+    // Todo 인증 절차를 파악하고 분기문을 재구성해야한다.
+    @Override
+    protected void onActivityResult(
+            int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        switch (requestCode) {
+            case REQUEST_GOOGLE_PLAY_SERVICES:
+                if (resultCode != RESULT_OK) {
+                    mOutputText.setText(
+                            "This app requires Google Play Services. Please install " +
+                                    "Google Play Services on your device and relaunch this app.");
+                } else {
+                    getResultsFromApi("CallAPI");
+                }
+                break;
+            case REQUEST_ACCOUNT_PICKER:
+                if (resultCode == RESULT_OK && data != null &&
+                        data.getExtras() != null) {
+                    String accountName =
+                            data.getStringExtra(AccountManager.KEY_ACCOUNT_NAME);
+                    if (accountName != null) {
+                        SharedPreferences settings =
+                                getPreferences(Context.MODE_PRIVATE);
+                        SharedPreferences.Editor editor = settings.edit();
+                        editor.putString(PREF_ACCOUNT_NAME, accountName);
+                        editor.apply();
+                        mCredential.setSelectedAccountName(accountName);
+                        getResultsFromApi("CallAPI");
+                    }
+                }
+                break;
+            case REQUEST_AUTHORIZATION:
+                if (resultCode == RESULT_OK) {
+                    getResultsFromApi("CallAPI");
+                }
+                break;
 //            case REQUEST_CALENDAR_LIST:
 //                    getResultsFromApi("getCalendarList");
 //                break;
-//        }
-//    }
+        }
+    }
 
     /**
      * Respond to requests for permissions at runtime for API 23 and above.
@@ -466,7 +504,7 @@ public class MainActivity extends AppCompatActivity
                 {
                     //캘린더 내용 받아오기(샘플코드)
                     return getDataFromApi();
-                } else {
+                } else if (params[0].equals("mAddEvent")){
                     //캘린더에 일정 등록
                     //Sleep Summary의 캘린더ID를 받아온다.
                     String calendarID = getCalendarID("Sleep");
@@ -484,17 +522,26 @@ public class MainActivity extends AppCompatActivity
                     //addEvent에 캘린더ID, 이벤트 전달. 이벤트가 중복인지 확인한다
                     list.add(addEvent(calendarID, event, true));
                     return list;
+                } else if (params[0].equals("mDeleteEvent")){
+                    Event event = makeEvent("sleep", null, "2017-02-23T03:00:00+09:00", "2017-02-23T11:00:00+09:00", "Asia/Seoul");
+                    if(deleteEvent(getCalendarID("Sleep"), event)){
+                        list.add(event.getSummary() + event.getStart().toString() + event.getEnd().toString() + " : is deleted");
+                    } else {
+                        list.add("Fail to delete : " + event.getSummary() + event.getStart().toString() + event.getEnd().toString());
+                    }
+
+                    return list;
                 }
 
             } catch (Exception e) {
                 mLastError = e;
                 cancel(true);
-                return null;
             }
+            return null;
         }
 
         //CalendarList를 받아옴
-        //Todo, 토큰을 이용해 여러개 받아올 수 있도록 수정 요망.
+
         private List<String> getCalendarList() throws IOException {
             List<String> list = new ArrayList<>();
             CalendarList calendarList =  mService.calendarList().list().execute();
@@ -515,6 +562,29 @@ public class MainActivity extends AppCompatActivity
                 }
             }
             return null;
+        }
+
+        private boolean deleteEvent(String calendarID, Event event) throws IOException{
+            String eventID, token = null;
+            List<Event> items;
+            if(calendarID == null) calendarID = "primary";
+            Events events = mService.events().list(calendarID).execute();
+            do {
+                items = events.getItems();
+                for (Event gettedEvent : items) {
+                    //이름, 시작/종료가 같은 이벤트가 있는지
+                    if (gettedEvent.getSummary().equals(event.getSummary())
+                            && gettedEvent.getStart().equals(event.getStart())
+                            && gettedEvent.getEnd().equals(event.getEnd())) {
+                        eventID = gettedEvent.getId();
+                        mService.events().delete(calendarID, eventID).execute();
+                        Log.d(TAG, "deleteEvent: success");
+                        return true;
+                    }
+                    token = events.getNextPageToken();
+                }
+            }while(token != null);
+            return false;
         }
 
         //이벤트를 캘린더에 등록하는 함수. 이벤트의 등록 결과를 String형태로 반환한다.
@@ -633,10 +703,10 @@ public class MainActivity extends AppCompatActivity
         }
     }
     //Google Fit에서 데이터를 받아오는 스레드.
-    private class FitData extends AsyncTask<Void,Void,DataSet>{
+    private class FitData extends AsyncTask<Void,Void,DataReadResult>{
 
         @Override
-        protected DataSet doInBackground(Void... params) {
+        protected DataReadResult doInBackground(Void... params) {
 
             //받아올 기간을 설정한다.
             java.util.Calendar cal = java.util.Calendar.getInstance();
@@ -653,30 +723,68 @@ public class MainActivity extends AppCompatActivity
 
             //DataReadResult를 빌드한다. DataType을 바꿔 다른 정보를 받아 올 수 있음.
             //수면 정보는 ACTIVITY에 속해있다.
-            //Todo ACTIVITY를 받아오는 플래그가 몇가지 있어서 테스트 요망.
-            //Segment면 충분하긴하다.
-            PendingResult<DataReadResult> pendingResult = Fitness.HistoryApi.readData(
-                    client,
-                    new DataReadRequest.Builder()
-                            .read(DataType.TYPE_ACTIVITY_SEGMENT)
-                            .setTimeRange(startTime, endTime, TimeUnit.MILLISECONDS)
-                            .build());
+            // Aggregate형태와 Segment형태가 서로 받아오는 방식과 결과물이 다르다.
+            // Segment는 시간별로 차곡차곡 나오는 반면, Aggrate는 인접한 액티비티를 묶어서 보여주는데,
+            // 수면의 경우 깊은잠, 얕은잠 등이 따로 묶여 시간이 겹치고 가독성이 낮다.
+            // Todo DB를 이용하여 수면 데이터를 저장하고 Calendar의 데이터도 DB에 저장해 비교 동기화해야한다.
 
-            DataReadResult readDataResult = pendingResult.await();
-            DataSet dataSet = readDataResult.getDataSet(DataType.TYPE_ACTIVITY_SEGMENT);
-            return dataSet;
+            //Segment방식
+            DataReadRequest dataReadRequest = new DataReadRequest.Builder()
+                    .read(DataType.TYPE_ACTIVITY_SEGMENT)
+                    .setTimeRange(startTime, endTime, TimeUnit.MILLISECONDS)
+                    .build();
+
+//            //Aggregate방식
+//            DataReadRequest dataReadRequest = new DataReadRequest.Builder()
+//                    // The data request can specify multiple data types to return, effectively
+//                    // combining multiple data queries into one call.
+//                    // In this example, it's very unlikely that the request is for several hundred
+//                    // datapoints each consisting of a few steps and a timestamp.  The more likely
+//                    // scenario is wanting to see how many steps were walked per day, for 7 days.
+//                    .aggregate(DataType.TYPE_ACTIVITY_SEGMENT, DataType.AGGREGATE_ACTIVITY_SUMMARY)
+//                    // Analogous to a "Group By" in SQL, defines how data should be aggregated.
+//                    // bucketByTime allows for a time span, whereas bucketBySession would allow
+//                    // bucketing by "sessions", which would need to be defined in code.
+//                    .bucketByTime(1, TimeUnit.DAYS)
+//                    .setTimeRange(startTime, endTime, TimeUnit.MILLISECONDS)
+//                    .build();
+
+
+            DataReadResult dataReadResult =
+                    Fitness.HistoryApi.readData(client, dataReadRequest).await(1, TimeUnit.MINUTES);
+            return dataReadResult;
         }
 
         @Override
-        protected void onPostExecute(DataSet dataReadResult) {
+        protected void onPostExecute(DataReadResult dataReadResult) {
             super.onPostExecute(dataReadResult);
-            dumpDataSet(dataReadResult);
+            if (dataReadResult.getBuckets().size() > 0) {
+                Log.i(TAG, "Number of returned buckets of DataSets is: "
+                        + dataReadResult.getBuckets().size());
+                for (Bucket bucket : dataReadResult.getBuckets()) {
+                    List<DataSet> dataSets = bucket.getDataSets();
+                    for (DataSet dataSet : dataSets) {
+                        dumpDataSet(dataSet);
+                    }
+                }
+            } else if (dataReadResult.getDataSets().size() > 0) {
+                Log.i(TAG, "Number of returned DataSets is: "
+                        + dataReadResult.getDataSets().size());
+                for (DataSet dataSet : dataReadResult.getDataSets()) {
+                    dumpDataSet(dataSet);
+                }
+            }
         }
 
-        //데이터셋을 출력.
-        //Todo 액티비티 타입을 구분하고, 통합 기능 추가해야한다. 통합시 Awake에 대한 별도 처리가 필요할듯 하다.
-        //Sleeping : 72, Light Sleep : 109, Deep Sleep : 110, REM Sellp : 111, Awake(during sleep) : 112
+        // 데이터셋을 출력.
+        // Todo 기본적으로 수면Segment를 통합하여주고 Awake로 Evnet를 나누어 넣을지 사용자에게 물어보아야한다.
+        // Sleeping : 72 (다른 수면상태와 뭐가 다른지 모르겠음),
+        // Light Sleep : 109,
+        // Deep Sleep : 110,
+        // REM Sleep : 111,
+        // Awake(during sleep) : 112
         //액티비티 타입 참고링크 https://developers.google.com/fit/rest/v1/reference/activity-types
+        //DataSet안에는 DataPoint들이 들어있음. DataPoint는 type, start, end,가 기본으로 있고, field항목으로 추가요소가 들어있다.
         private void dumpDataSet(DataSet dataSet) {
             mOutputText.append("Data returned for Data type: " + dataSet.getDataType().getName() + "\n");
             DateFormat dateFormat = getTimeInstance();
