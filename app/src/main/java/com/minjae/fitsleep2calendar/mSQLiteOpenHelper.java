@@ -14,14 +14,13 @@ public class mSQLiteOpenHelper extends SQLiteOpenHelper {
     public static final int DATABASE_VERSION = 1;
     public static final String DATABASE_NAME = "Fit2sleepCalendar";
 
-
+    // TODO DB를 연단위로 끊어 사용하는게 성능에 좋다고 생각하는데, DB가 바뀌는 구간의 경우 데이터 조회가 번거로워진다..
     public mSQLiteOpenHelper(Context context) {
         super(context, DATABASE_NAME, null, DATABASE_VERSION);
     }
 
     @Override
     public void onCreate(SQLiteDatabase db) {
-        db.execSQL(DBFitSleepSegmentTable.CREATE_TABLE_QUERY);
         db.execSQL(DBCalendarSleepEvent.CREATE_TABLE_QUERY);
     }
 

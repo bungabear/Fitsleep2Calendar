@@ -6,6 +6,8 @@ import android.provider.BaseColumns;
  * Created by Minjae on 2017-02-24.
  *
  * 캘린더 동기화용으로, 캘린더 Event항목과 같은 형태로 작성되는 테이블이다.
+ * Fit Segment DB에서 꾸려진 Event데이터를 저장하고 Calendar에 등록하며,
+ * 재 동기화 과정에서 Event데이터와 중복되는 기간동안 다른 Segment꾸러미가 나오면, Event의 시간을 수정해준다.
  *
  */
 
