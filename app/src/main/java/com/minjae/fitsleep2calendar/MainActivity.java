@@ -1,34 +1,5 @@
 package com.minjae.fitsleep2calendar;
 
-import com.google.android.gms.common.ConnectionResult;
-import com.google.android.gms.common.GoogleApiAvailability;
-import com.google.android.gms.common.Scopes;
-import com.google.android.gms.common.api.GoogleApiClient;
-import com.google.android.gms.common.api.PendingResult;
-import com.google.android.gms.common.api.Scope;
-import com.google.android.gms.fitness.Fitness;
-import com.google.android.gms.fitness.data.Bucket;
-import com.google.android.gms.fitness.data.DataPoint;
-import com.google.android.gms.fitness.data.DataSet;
-import com.google.android.gms.fitness.data.DataType;
-import com.google.android.gms.fitness.request.DataReadRequest;
-import com.google.android.gms.fitness.result.DataReadResult;
-import com.google.api.client.extensions.android.http.AndroidHttp;
-import com.google.api.client.googleapis.extensions.android.gms.auth.GoogleAccountCredential;
-import com.google.api.client.googleapis.extensions.android.gms.auth.GooglePlayServicesAvailabilityIOException;
-import com.google.api.client.googleapis.extensions.android.gms.auth.UserRecoverableAuthIOException;
-
-import com.google.api.client.http.HttpTransport;
-import com.google.api.client.json.JsonFactory;
-import com.google.api.client.json.jackson2.JacksonFactory;
-import com.google.api.client.util.ExponentialBackOff;
-
-import com.google.api.services.calendar.CalendarScopes;
-import com.google.api.client.util.DateTime;
-
-import com.google.api.services.calendar.model.*;
-import com.google.api.services.calendar.model.Calendar;
-
 import android.Manifest;
 import android.accounts.AccountManager;
 import android.app.Dialog;
@@ -36,43 +7,41 @@ import android.app.ProgressDialog;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
-import android.database.sqlite.SQLiteDatabase;
 import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
-import android.os.AsyncTask;
 import android.os.Bundle;
 import android.support.annotation.NonNull;
+import android.support.design.widget.Snackbar;
+import android.support.v4.app.ActivityCompat;
 import android.support.v7.app.AppCompatActivity;
-import android.text.TextUtils;
-import android.text.method.ScrollingMovementMethod;
 import android.util.Log;
 import android.view.View;
-import android.view.ViewGroup;
 import android.widget.Button;
-import android.widget.LinearLayout;
-import android.widget.TextView;
-import android.widget.Toast;
+import android.widget.ListView;
 
-import java.io.IOException;
-import java.text.DateFormat;
-import java.util.*;
-import java.util.concurrent.TimeUnit;
+import com.google.android.gms.common.ConnectionResult;
+import com.google.android.gms.common.GoogleApiAvailability;
+import com.google.android.gms.common.api.GoogleApiClient;
+import com.google.api.client.googleapis.extensions.android.gms.auth.GoogleAccountCredential;
+import com.google.api.client.util.ExponentialBackOff;
+import com.google.api.services.calendar.CalendarScopes;
+import com.google.api.services.calendar.model.Event;
+
+import java.util.Arrays;
+import java.util.List;
+import java.util.concurrent.ExecutionException;
 
 import pub.devrel.easypermissions.AfterPermissionGranted;
 import pub.devrel.easypermissions.EasyPermissions;
 
-import static java.text.DateFormat.getTimeInstance;
-
-// Todo 두개의 AsyncTask를 통합해야하는지 고려해봐야한다.
 public class MainActivity extends AppCompatActivity
         implements EasyPermissions.PermissionCallbacks {
     GoogleAccountCredential mCredential;
-    private TextView mOutputText;
-    private Button mCallApiButton, mGetCalendarList, mAddEvent, mDeleteEvent, mGetFitData;
-    private PendingResult<DataReadResult> pendingResult = null;
+    private ListView listView;
+    private Button mCallApiButton, mGetFitData;
     private GoogleApiClient client = null;
-    private mSQLiteOpenHelper mDBHelper = null;
-    private SQLiteDatabase db = null;
+    private CustomListViewAdapter mListViewAdapter;
+    private Snackbar snackbar;
     ProgressDialog mProgress;
 
     static final int REQUEST_ACCOUNT_PICKER = 1000;
@@ -93,6 +62,7 @@ public class MainActivity extends AppCompatActivity
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        setContentView(R.layout.activity_main);
         initView();
 
         // Initialize credentials and service object.
@@ -100,110 +70,55 @@ public class MainActivity extends AppCompatActivity
                 getApplicationContext(), Arrays.asList(SCOPES))
                 .setBackOff(new ExponentialBackOff());
 
-//        mDBHelper = new mSQLiteOpenHelper(getApplicationContext());
-//        db = mDBHelper.getWritableDatabase();
-
-
-        // Todo 디버깅 및 추후 데이터 표시를 위해 CustomListView만들기.
-
     }
 
     //ActivityView 초기화
     private void initView() {
-        LinearLayout activityLayout = new LinearLayout(this);
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.MATCH_PARENT);
-        activityLayout.setLayoutParams(lp);
-        activityLayout.setOrientation(LinearLayout.VERTICAL);
-        activityLayout.setPadding(16, 16, 16, 16);
 
-        ViewGroup.LayoutParams tlp = new ViewGroup.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT);
+        listView = (ListView)findViewById(R.id.listivew);
+        mListViewAdapter = new CustomListViewAdapter(this);
+        listView.setAdapter(mListViewAdapter);
+        snackbar = Snackbar.make(listView, "", Snackbar.LENGTH_SHORT);
 
-        mCallApiButton = new Button(this);
+        mCallApiButton = (Button)findViewById(R.id.call_api);
         mCallApiButton.setText(BUTTON_TEXT);
-        mCallApiButton.setTag("CallAPI");
+        mCallApiButton.setTag(getString(R.string.call_api));
         mCallApiButton.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 mCallApiButton.setEnabled(false);
-                mOutputText.setText("");
                 getResultsFromApi((String) v.getTag());
                 mCallApiButton.setEnabled(true);
             }
         });
-        activityLayout.addView(mCallApiButton);
 
-        mGetFitData = new Button(this);
-        mGetFitData.setText("GetFitData");
-        mGetFitData.setTag("GetFitData");
+        mGetFitData = (Button)findViewById(R.id.get_fitdata);
+        mGetFitData.setText(R.string.get_fitdata);
+        final MainActivity mainActivity = this;
         mGetFitData.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 mGetFitData.setEnabled(false);
-                mOutputText.setText("");
                 if (client == null) {
-                    buildGoogleFitClient();
+                    client = FitAPITask.buildGoogleFitClient(getApplicationContext(), mainActivity);
                 }
-                new FitAsyncTask(client, mProgress,mOutputText).execute();
+                try {
+                    List<Event> eventList = new FitAPITask(client, mProgress,mListViewAdapter).execute().get();
+                    Log.d(TAG, "");
+                    for(Event event : eventList){
+                        new CalendarAPITask(mCredential, mainActivity, mProgress, snackbar).execute(event);
+                    }
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                } catch (ExecutionException e) {
+                    e.printStackTrace();
+                }
                 mGetFitData.setEnabled(true);
             }
         });
-        activityLayout.addView(mGetFitData);
-
-        mOutputText = new TextView(this);
-        mOutputText.setLayoutParams(tlp);
-        mOutputText.setPadding(16, 16, 16, 16);
-        mOutputText.setVerticalScrollBarEnabled(true);
-        mOutputText.setMovementMethod(new ScrollingMovementMethod());
-        mOutputText.setText(
-                "Click the \'" + BUTTON_TEXT + "\' button to test the API.");
-        activityLayout.addView(mOutputText);
 
         mProgress = new ProgressDialog(this);
 
-        setContentView(activityLayout);
-    }
-
-    private void buildGoogleFitClient() {
-        Log.i(TAG, "Trying to build GoogleFit client");
-        client = new GoogleApiClient.Builder(getApplicationContext())
-                .addApi(Fitness.HISTORY_API).addScope(new Scope(Scopes.FITNESS_ACTIVITY_READ))
-                .addConnectionCallbacks(
-                        new GoogleApiClient.ConnectionCallbacks() {
-                            @Override
-                            public void onConnected(Bundle bundle) {
-                                Log.i(TAG, "Connected!!!");
-                                // Now you can make calls to the Fitness APIs.
-                            }
-
-                            @Override
-                            public void onConnectionSuspended(int i) {
-                                // If your connection to the sensor gets lost at some point,
-                                // you'll be able to determine the reason and react to it here.
-                                if (i == GoogleApiClient.ConnectionCallbacks.CAUSE_NETWORK_LOST) {
-                                    Log.i(TAG, "Connection lost.  Cause: Network Lost.");
-                                } else if (i
-                                        == GoogleApiClient.ConnectionCallbacks.CAUSE_SERVICE_DISCONNECTED) {
-                                    Log.i(TAG,
-                                            "Connection lost.  Reason: Service Disconnected");
-                                }
-                            }
-                        }
-                )
-                .enableAutoManage(this, 0, new GoogleApiClient.OnConnectionFailedListener() {
-                    @Override
-                    public void onConnectionFailed(ConnectionResult result) {
-                        Log.i(TAG, "Google Play services connection failed. Cause: " +
-                                result.toString());
-                        Toast.makeText(getApplicationContext(), "Exception while connecting to Google Play services: " + result.getErrorMessage(), Toast.LENGTH_SHORT).show();
-                    }
-                })
-                .build();
-
-        Log.d(TAG, "buildGoogleFitClient: " + client);
     }
 
     /**
@@ -217,11 +132,11 @@ public class MainActivity extends AppCompatActivity
         if (!isGooglePlayServicesAvailable()) {
             acquireGooglePlayServices();
         } else if (mCredential.getSelectedAccountName() == null) {
-            chooseAccount(tag);
+            chooseAccount();
         } else if (!isDeviceOnline()) {
-            mOutputText.setText("No network connection available.");
+            snackbar.setText(R.string.no_network).show();
         } else {
-            new CalendarAsyncTask(mCredential, this, mProgress, mOutputText).execute(tag);
+            new CalendarAPITask(mCredential, this, mProgress, snackbar).execute();
         }
     }
 
@@ -236,14 +151,14 @@ public class MainActivity extends AppCompatActivity
      * is granted.
      */
     @AfterPermissionGranted(REQUEST_PERMISSION_GET_ACCOUNTS)
-    private void chooseAccount(String tag) {
+    private void chooseAccount() {
         if (EasyPermissions.hasPermissions(
                 this, Manifest.permission.GET_ACCOUNTS)) {
             String accountName = getPreferences(Context.MODE_PRIVATE)
                     .getString(PREF_ACCOUNT_NAME, null);
             if (accountName != null) {
                 mCredential.setSelectedAccountName(accountName);
-                getResultsFromApi(tag);
+                getResultsFromApi("CallAPI");
             } else {
                 // Start a dialog from which the user can choose an account
                 startActivityForResult(
@@ -274,6 +189,7 @@ public class MainActivity extends AppCompatActivity
 
     // 처음 사용자게에 캘린더 계정 선택 및 권한부여할때 필요한 부분이다.
     // Todo 인증 절차를 파악하고 분기문을 재구성해야한다.
+
     @Override
     protected void onActivityResult(
             int requestCode, int resultCode, Intent data) {
@@ -281,9 +197,8 @@ public class MainActivity extends AppCompatActivity
         switch (requestCode) {
             case REQUEST_GOOGLE_PLAY_SERVICES:
                 if (resultCode != RESULT_OK) {
-                    mOutputText.setText(
-                            "This app requires Google Play Services. Please install " +
-                                    "Google Play Services on your device and relaunch this app.");
+                    snackbar.setText(
+                            R.string.google_play_is_not_found).show();
                 } else {
                     getResultsFromApi("CallAPI");
                 }
@@ -309,9 +224,6 @@ public class MainActivity extends AppCompatActivity
                     getResultsFromApi("CallAPI");
                 }
                 break;
-//            case REQUEST_CALENDAR_LIST:
-//                    getResultsFromApi("getCalendarList");
-//                break;
         }
     }
 
@@ -420,4 +332,3 @@ public class MainActivity extends AppCompatActivity
 
 
 }
-

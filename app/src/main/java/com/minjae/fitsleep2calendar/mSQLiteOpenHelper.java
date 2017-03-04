@@ -7,6 +7,7 @@ import android.provider.BaseColumns;
 
 /**
  * Created by Minjae on 2017-02-24.
+ * 캘린더의 이벤트를 저장할 DB를 관리.
  */
 
 public class mSQLiteOpenHelper extends SQLiteOpenHelper {

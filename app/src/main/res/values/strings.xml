@@ -1,3 +1,13 @@
 <resources>
     <string name="app_name">FitSleep2Calendar</string>
+    <string name="google_play_is_not_found">This app requires Google Play Services. \nPlease install Google Play Services on your device and relaunch this app.</string>
+    <string name="no_network">No network connection available.</string>
+    <string name="click_button_to_test">Click the %s button to test the API.</string>
+    <string name="get_fitdata">Get FitData</string>
+    <string name="call_api">Call API</string>
+    <string name="building_google_fit_clinet">Build GoogleFit Client</string>
+    <string name="service_disconnect">Service Disconnected</string>
+    <string name="start_time">StartTime</string>
+    <string name="end_time">EndTime</string>
+    <string name="event_id">Event ID</string>
 </resources>

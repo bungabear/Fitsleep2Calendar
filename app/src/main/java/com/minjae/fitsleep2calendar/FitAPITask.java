@@ -1,11 +1,18 @@
 package com.minjae.fitsleep2calendar;
 
+import android.app.Activity;
 import android.app.ProgressDialog;
+import android.content.Context;
 import android.os.AsyncTask;
+import android.os.Bundle;
+import android.support.design.widget.Snackbar;
+import android.support.v7.app.AppCompatActivity;
 import android.util.Log;
-import android.widget.TextView;
 
+import com.google.android.gms.common.ConnectionResult;
+import com.google.android.gms.common.Scopes;
 import com.google.android.gms.common.api.GoogleApiClient;
+import com.google.android.gms.common.api.Scope;
 import com.google.android.gms.fitness.Fitness;
 import com.google.android.gms.fitness.data.Bucket;
 import com.google.android.gms.fitness.data.DataPoint;
@@ -14,40 +21,43 @@ import com.google.android.gms.fitness.data.DataType;
 import com.google.android.gms.fitness.request.DataReadRequest;
 import com.google.android.gms.fitness.result.DataReadResult;
 import com.google.api.client.util.DateTime;
+import com.google.api.services.calendar.model.Event;
 
 import java.text.DateFormat;
 import java.util.ArrayList;
+import java.util.Calendar;
 import java.util.Date;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 /**
  * Created by Minjae on 2017-02-27.
+ * Google Fit에서 데이터를 받아오는 스레드.
  */
 
-//Google Fit에서 데이터를 받아오는 스레드.
-public class FitAsyncTask extends AsyncTask<Object, Object, List<String>> {
+class FitAPITask extends AsyncTask<Object, Object, List<Event>> {
 
-    static final String TAG = "F2C-FitAsyncTask";
+    private static final String TAG = "F2C-FitAPITask";
     private GoogleApiClient mClient;
-    private TextView mOutputText;
+    private CustomListViewAdapter mListData;
     private ProgressDialog mProgress;
-    public FitAsyncTask(GoogleApiClient client, ProgressDialog progress, TextView outputText) {
+    FitAPITask(GoogleApiClient client, ProgressDialog progress, CustomListViewAdapter outputText) {
         mClient = client;
         mProgress =  progress;
-        mOutputText = outputText;
+        mListData = outputText;
+        Log.d(TAG, "FitAPITask: created");
     }
 
     @Override
-    protected List<String> doInBackground(Object... params) {
+    protected List<Event> doInBackground(Object... params) {
 
         //받아올 기간을 설정한다.
         java.util.Calendar cal = java.util.Calendar.getInstance();
         Date now = new Date();
         cal.setTime(now);
         long endTime = cal.getTimeInMillis();
-        //1주일
-        cal.add(java.util.Calendar.YEAR, -1);
+        // Todo 기간 설정부분 만들기
+        cal.add(Calendar.MONTH, -1);
         long startTime = cal.getTimeInMillis();
 
         DateFormat dateFormat = DateFormat.getDateInstance();
@@ -59,7 +69,6 @@ public class FitAsyncTask extends AsyncTask<Object, Object, List<String>> {
         // Aggregate형태와 Segment형태가 서로 받아오는 방식과 결과물이 다르다.
         // Segment는 시간별로 차곡차곡 나오는 반면, Aggrate는 인접한 액티비티를 묶어서 보여주는데,
         // 수면의 경우 깊은잠, 얕은잠 등이 따로 묶여 시간이 겹치고 가독성이 낮다.
-        // Todo DB를 이용하여 수면 데이터를 저장하고 Calendar Event용 데이터도 DB에 저장해 비교 동기화해야한다.
 
         //Segment방식
         DataReadRequest dataReadRequest = new DataReadRequest.Builder()
@@ -85,7 +94,7 @@ public class FitAsyncTask extends AsyncTask<Object, Object, List<String>> {
 
         DataReadResult dataReadResult =
                 Fitness.HistoryApi.readData(mClient, dataReadRequest).await(1, TimeUnit.MINUTES);
-        List<String>data = new ArrayList<>();
+        List<Event>eventList = new ArrayList<>();
         // 데이터가 Bucket으로 오는경우. Aggregate로 조회했을경우이다.
         if (dataReadResult.getBuckets().size() > 0) {
             Log.i(TAG, "Number of returned buckets of DataSets is: "
@@ -93,7 +102,7 @@ public class FitAsyncTask extends AsyncTask<Object, Object, List<String>> {
             for (Bucket bucket : dataReadResult.getBuckets()) {
                 List<DataSet> dataSets = bucket.getDataSets();
                 for (DataSet dataSet : dataSets) {
-                    data =  dumpDataSet(dataSet);
+                    eventList =  bindSleepDataset(dataSet);
                 }
             }
             // 데이터가 DataSet으로 오는경우. Segment로 조회했을 경우이다.
@@ -101,10 +110,11 @@ public class FitAsyncTask extends AsyncTask<Object, Object, List<String>> {
             Log.i(TAG, "Number of returned DataSets is: "
                     + dataReadResult.getDataSets().size());
             for (DataSet dataSet : dataReadResult.getDataSets()) {
-                data = dumpDataSet(dataSet);
+                eventList = bindSleepDataset(dataSet);
             }
         }
-        return data;
+        Log.d(TAG, "doInBackground:  data get");
+        return eventList;
     }
 
     @Override
@@ -115,11 +125,14 @@ public class FitAsyncTask extends AsyncTask<Object, Object, List<String>> {
     }
 
     @Override
-    protected void onPostExecute(List<String> dataReadResult) {
-        super.onPostExecute(dataReadResult);
-        for(String str : dataReadResult){
-            mOutputText.append(str.replace('T', ' '));
+    protected void onPostExecute(List<Event> eventList) {
+        super.onPostExecute(eventList);
+
+        // 커스텀 리스트뷰에 반영
+        for(int i = 0 ; i < eventList.size() ; i++){
+            mListData.addItem(String.valueOf(i), eventList.get(i).getStart().getDateTime().toString(), eventList.get(i).getEnd().getDateTime().toString(), false , null);
         }
+        mListData.notifyDataSetChanged();
         mProgress.hide();
     }
 
@@ -127,7 +140,7 @@ public class FitAsyncTask extends AsyncTask<Object, Object, List<String>> {
     // 액티비티 타입 참고링크 https://developers.google.com/fit/rest/v1/reference/activity-types
     // DataSet안에는 DataPoint들이 들어있음. DataPoint는 type, start, end,가 기본으로 있고, Field항목으로 추가요소가 들어있다.
     // Field에는 액티비티 번호, Aggregateg형태에서는 결합된 액티비티 갯수 등이 나온다.
-    private List<String> dumpDataSet(DataSet dataSet) {
+    private List<Event> bindSleepDataset(DataSet dataSet) {
         List<String> data = new ArrayList<>();
         for (int i = 1 ; i < dataSet.getDataPoints().size()-1; i++) {
 
@@ -143,7 +156,7 @@ public class FitAsyncTask extends AsyncTask<Object, Object, List<String>> {
             DataPoint nextDp = dataSet.getDataPoints().get(i+1);
             int nextActivity = Integer.parseInt(nextDp.getValue(nextDp.getDataType().getFields().get(0)).toString());
 
-            DataPoint postDp = dataSet.getDataPoints().get(i+1);
+            DataPoint postDp = dataSet.getDataPoints().get(i-1);
             int postActivity = Integer.parseInt(postDp.getValue(postDp.getDataType().getFields().get(0)).toString());
 
 
@@ -153,11 +166,11 @@ public class FitAsyncTask extends AsyncTask<Object, Object, List<String>> {
             boolean isPostSleep = (postActivity == 72 || (postActivity >= 109 && postActivity <= 112));
 
             if(isSleep){
-                Log.d(TAG, "dumpDataSet: " + startTime.substring(0,10) + " " + activity + " " + startTime.substring(11,16) + " ~ " + endTime.substring(0,10) + " " + endTime.substring(11,16));
+//                Log.d(TAG, "bindSleepActivity: " + startTime.substring(0,10) + " " + activity + " " + startTime.substring(11,16) + " ~ " + endTime.substring(0,10) + " " + endTime.substring(11,16));
                 String postEndTime = new DateTime(postDp.getEndTime(TimeUnit.MILLISECONDS)).toString();
-                String nextStartTime = new DateTime(nextDp.getEndTime(TimeUnit.MILLISECONDS)).toString();
+                String nextStartTime = new DateTime(nextDp.getStartTime(TimeUnit.MILLISECONDS)).toString();
                 boolean isContinueFromPost = startTime.equals(postEndTime);
-                boolean isContinueToNext = startTime.equals(nextStartTime);
+                boolean isContinueToNext = endTime.equals(nextStartTime);
 
                 // 전,후 세그먼트에 따라 분기.
                 if(isPostSleep & isNextSleep){
@@ -165,90 +178,95 @@ public class FitAsyncTask extends AsyncTask<Object, Object, List<String>> {
                         // 수면주기의 중간
                     } else if(isContinueFromPost & !isContinueToNext){
                         // 수면주기의 끝
-                        data.add(String.format("end : %s \n\n", endTime.substring(5,16)));
+                        data.add(String.format("%s : end", endTime));
                     } else if(!isContinueFromPost & isContinueToNext){
                         // 수면주기의 시작
-                        data.add(String.format("start : %s \n", startTime.substring(5,16)));
+                        data.add(String.format("%s : start", startTime));
                     } else {
                         // 독립적인 수면
-                        data.add(String.format("start : %s \n", startTime.substring(5,16)));
-                        data.add(String.format("end : %s \n\n", endTime.substring(5,16)));
+                        data.add(String.format("%s : start", startTime));
+                        data.add(String.format("%s : end", endTime));
                     }
                 } else if(isPostSleep & !isNextSleep){
                     if(isContinueFromPost) {
                         // 수면주기의 끝
-                        data.add(String.format("end : %s \n\n", endTime.substring(5,16)));
+                        data.add(String.format("%s : end", endTime));
                     } else {
                         // 독립 수면
-                        data.add(String.format("start : %s \n", startTime.substring(5,16)));
-                        data.add(String.format("end : %s \n\n", endTime.substring(5,16)));
+                        data.add(String.format("%s : start", startTime));
+                        data.add(String.format("%s : end", endTime));
                     }
                     // 뒷 세그먼트가 수면이 아니므로 새로운 수면을 찾아 이동시킴.
 
                 } else if(!isPostSleep & isNextSleep){
                     if(isContinueToNext){
                         // 수면의 시작
-                        data.add(String.format("start : %s \n", startTime.substring(5,16)));
+                        data.add(String.format("%s : start", startTime));
                     } else {
                         // 독립 수면
-                        data.add(String.format("start : %s \n", startTime.substring(5,16)));
-                        data.add(String.format("end : %s \n\n", endTime.substring(5,16)));
+                        data.add(String.format("%s : start", startTime));
+                        data.add(String.format("%s : end", endTime));
                     }
                 } else {
                     //독립 수면
-                    data.add(String.format("start : %s \n", startTime.substring(5,16)));
-                    data.add(String.format("end : %s \n\n", endTime.substring(5,16)));
+                    data.add(String.format("%s : start", startTime));
+                    data.add(String.format("%s : end", endTime));
                 }
-            } else {
-
             }
-
-
-
-                /*
-                *   전/후 활동과 비교
-                *       전/후 둘다 수면
-                *           전/후 시간 비교
-                *               전/후 연속
-                *                   -수면의 중간, PASS
-                *               전만 연속
-                *                   -수면의 끝
-                *               후만 연속
-                *                   -수면의 시작
-                *               전/후 불연속
-                *                   -독립 수면
-                *       전만 수면
-                *           전/후 시간비교
-                *               전과 연속
-                *                   -수면의 끝
-                *                   후가 연속/불연속
-                *                       -후를 하나 건너뜀.
-                *               전과 불연속
-                *                   -독립 수면
-                *                   후가 연속/불연속
-                   *                    -후를 하나 건너뜀
-                *
-                *       후만 수면
-                *           후와 시간비교
-                *               후와 연속
-                *                   -수면의 시작
-                *               후와 불연속
-                *                   -독립 수면
-                *       둘다 수면아님
-                *           - 독립적인 수면
-                *
-                *
-                *      여기서, 전/후 수면을 비교해야하는데, 목록의 끝인경우.
-                *       현재 세그먼트가 수면이 아니면 놔두면 되지만,
-                *       수면이면 추가로 값을 불러와 수면의 시작/끝까지만 추적? 1일 새벽(전날 저녁)~ 4일 저녁(다음날 오전)이 포함됨.
-                *       양쪽으로 1일치씩만 불러오고 불연속을 배제하여 수면주기를 분석.
-                *
-                *
-                *
-                 */
-
-//               mOutputText.append(String.format("end : %s \n\n", nextStartTime.substring(5,16)));
         }
-        return data;
+        // 계산한 데이터를 이벤트 리스트로 저장한다.
+        boolean first = true;
+        List<Event> eventList = new ArrayList<>();
+        for(int i = 0 ; i < data.size() ; i++){
+            //첫 값이 End면 삭제
+            if(first && data.get(i).substring(0,3).equals("end")){
+                first = false;
+                data.remove(0);
+            }
+            eventList.add(CalendarAPITask.makeEvent("sleep", null, data.get(i).substring(0,29), data.get(i+1).substring(0,29), "Asia/Seoul"));
+            i++;
+        }
+        Log.d(TAG, "bindSleepDataset: ");
+        return eventList;
     }
+
+    static GoogleApiClient buildGoogleFitClient(final Context mContext, AppCompatActivity mActivity) {
+        Log.i(TAG, mContext.getString(R.string.building_google_fit_clinet));
+        GoogleApiClient client = new GoogleApiClient.Builder(mContext)
+                .addApi(Fitness.HISTORY_API).addScope(new Scope(Scopes.FITNESS_ACTIVITY_READ))
+                .addConnectionCallbacks(
+                        new GoogleApiClient.ConnectionCallbacks() {
+                            @Override
+                            public void onConnected(Bundle bundle) {
+                                Log.i(TAG, "Connected!!!");
+                                // Now you can make calls to the Fitness APIs.
+                            }
+
+                            @Override
+                            public void onConnectionSuspended(int i) {
+                                // If your connection to the sensor gets lost at some point,
+                                // you'll be able to determine the reason and react to it here.
+                                if (i == GoogleApiClient.ConnectionCallbacks.CAUSE_NETWORK_LOST) {
+                                    Log.i(TAG, "Connection lost.  Cause: Network Lost.");
+                                } else if (i
+                                        == GoogleApiClient.ConnectionCallbacks.CAUSE_SERVICE_DISCONNECTED) {
+                                    Log.i(TAG,
+                                            "Connection lost.  Reason: Service Disconnected");
+                                }
+                            }
+                        }
+                )
+                .enableAutoManage(mActivity, 0, new GoogleApiClient.OnConnectionFailedListener() {
+                    @Override
+                    public void onConnectionFailed(ConnectionResult result) {
+                        Log.i(TAG, "Google Play services connection failed. Cause: " +
+                                result.toString());
+                        Snackbar.make(((Activity)mContext).getWindow().getDecorView().findViewById(R.id.listivew), "Exception while connecting to Google Play services: " + result.getErrorMessage(), Snackbar.LENGTH_SHORT).show();
+                    }
+                })
+                .build();
+        return client;
+    }
+
+
 }

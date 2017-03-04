@@ -1,13 +1,13 @@
 package com.minjae.fitsleep2calendar;
 
 import android.app.ProgressDialog;
+import android.content.Context;
+import android.content.SharedPreferences;
 import android.os.AsyncTask;
-import android.support.v4.app.ActivityCompat;
+import android.support.design.widget.Snackbar;
 import android.text.TextUtils;
 import android.util.Log;
-import android.widget.TextView;
 
-import com.google.android.gms.common.api.GoogleApiClient;
 import com.google.api.client.extensions.android.http.AndroidHttp;
 import com.google.api.client.googleapis.extensions.android.gms.auth.GoogleAccountCredential;
 import com.google.api.client.googleapis.extensions.android.gms.auth.GooglePlayServicesAvailabilityIOException;
@@ -29,81 +29,65 @@ import java.util.List;
 
 /**
  * Created by Minjae on 2017-02-27.
+ * 캘린더 API를 이용하는 스레드
  */
 
 /**
  * An asynchronous task that handles the Google Calendar API call.
  * Placing the API calls in their own task ensures the UI stays responsive.
  */
-public class CalendarAsyncTask extends AsyncTask<String, Void, List<String>> {
-    static final String TAG = "F2C-FitAsyncTask";
+class CalendarAPITask extends AsyncTask<Event, Void, List<String>> {
+    private static final String TAG = "F2C-FitAPITask";
     private com.google.api.services.calendar.Calendar mService = null;
     private Exception mLastError = null;
-    private TextView mOutputText;
+    private Snackbar mSnackbar;
     private ProgressDialog mProgress;
     private MainActivity mActivityCompat;
+    private String sleepCalendarID;
 
-    CalendarAsyncTask(GoogleAccountCredential credential, MainActivity activityCompat, ProgressDialog progressDialog, TextView textView) {
+    CalendarAPITask(GoogleAccountCredential credential, MainActivity activityCompat, ProgressDialog progressDialog, Snackbar snackbar) {
         mActivityCompat = activityCompat;
         mProgress = progressDialog;
-        mOutputText = textView;
+        mSnackbar = snackbar;
         HttpTransport transport = AndroidHttp.newCompatibleTransport();
         JsonFactory jsonFactory = JacksonFactory.getDefaultInstance();
         mService = new com.google.api.services.calendar.Calendar.Builder(
                 transport, jsonFactory, credential)
                 .setApplicationName("Fitsleep2Calendar")
                 .build();
-    }
 
-    /**
-     * Background task to call Google Calendar API.
-     *
-     * @param params no parameters needed for this task.
-     */
-    @Override
-    protected List<String> doInBackground(String... params) {
-        try {
-            //버튼에서 나오는 태그로 액션 판별
-            List<String> list = new ArrayList<>();
+        //저장된 캘린더 ID를 가져옴.
+        SharedPreferences preferences = mActivityCompat.getPreferences(Context.MODE_PRIVATE);
+        sleepCalendarID = preferences.getString("sleepCalendarID","");
 
-            if (params[0].equals("GetCalendarList")) {
-                //캘린더 목록 받아오기
-                return getCalendarList();
-            } else if (params[0].equals("CallAPI")) {
-                //캘린더 내용 받아오기(샘플코드)
-                return getDataFromApi();
-            } else if (params[0].equals("mAddEvent")) {
-                //캘린더에 일정 등록
-                //Sleep Summary의 캘린더ID를 받아온다.
-                String calendarID = getCalendarID("Sleep");
-                if (calendarID == null) {
-                    //만약 Sleep이라는 Summary의 캘린더가 없으면 만든다.
+        try{
+            //저장된 캘린더ID가 없으면 찾아온다.
+            if(sleepCalendarID.equals("")){
+                sleepCalendarID = getCalendarID("Sleep");
+
+                //찾아도 없으면 만든다.
+                if (sleepCalendarID == null) {
                     Calendar calendar = new Calendar();
                     calendar.setSummary("Sleep");
                     calendar.setTimeZone("Asia/Seoul");
                     Calendar createdCalendar = mService.calendars().insert(calendar).execute();
-                    calendarID = createdCalendar.getId();
-                    list.add("Calendar Created : " + calendarID);
+                    sleepCalendarID = createdCalendar.getId();
                 }
-                //이벤트 생성
-                Event event = makeEvent("sleep", null, "2017-02-23T03:00:00+09:00", "2017-02-23T11:00:00+09:00", "Asia/Seoul");
-                //addEvent에 캘린더ID, 이벤트 전달. 이벤트가 중복인지 확인한다
-                list.add(addEvent(calendarID, event, true));
-                return list;
-            } else if (params[0].equals("mDeleteEvent")) {
-                Event event = makeEvent("sleep", null, "2017-02-23T03:00:00+09:00", "2017-02-23T11:00:00+09:00", "Asia/Seoul");
-                if (deleteEvent(getCalendarID("Sleep"), event)) {
-                    list.add(event.getSummary() + event.getStart().toString() + event.getEnd().toString() + " : is deleted");
-                } else {
-                    list.add("Fail to delete : " + event.getSummary() + event.getStart().toString() + event.getEnd().toString());
-                }
-
-                return list;
             }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
 
-        } catch (Exception e) {
-            mLastError = e;
-            cancel(true);
+    @Override
+    protected List<String> doInBackground(Event... params) {
+        for(Event event : params){
+            try {
+                deleteEventList_InTime(sleepCalendarID, event);
+                addEvent(sleepCalendarID,event,false);
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
         }
         return null;
     }
@@ -111,24 +95,35 @@ public class CalendarAsyncTask extends AsyncTask<String, Void, List<String>> {
     //CalendarList를 받아옴
 
     private List<String> getCalendarList() throws IOException {
+        String token = null;
         List<String> list = new ArrayList<>();
         CalendarList calendarList = mService.calendarList().list().execute();
-        List<CalendarListEntry> items = calendarList.getItems();
-        for (CalendarListEntry calendarListEList : items) {
-            list.add(String.format("%s : %s", calendarListEList.getSummary(), calendarListEList.getId()));
-        }
+        List<CalendarListEntry> items;
+        do{
+            items = calendarList.getItems();
+            for (CalendarListEntry calendarListEList : items) {
+                list.add(String.format("%s : %s", calendarListEList.getSummary(), calendarListEList.getId()));
+            }
+            calendarList.getNextPageToken();
+        }while(token != null);
         return list;
     }
 
     //Summary명으로 캘린더 ID를 받아옴
     private String getCalendarID(String summaryName) throws IOException {
+        String token = null;
+        List<String> list = new ArrayList<>();
         CalendarList calendarList = mService.calendarList().list().execute();
-        List<CalendarListEntry> items = calendarList.getItems();
-        for (CalendarListEntry calendarListEList : items) {
-            if (calendarListEList.getSummary().equals(summaryName)) {
-                return calendarListEList.getId();
+        List<CalendarListEntry> items;
+        do{
+            items = calendarList.getItems();
+            for (CalendarListEntry calendarListEList : items) {
+                if (calendarListEList.getSummary().equals(summaryName)) {
+                    return calendarListEList.getId();
+                }
             }
-        }
+            calendarList.getNextPageToken();
+        }while(token != null);
         return null;
     }
 
@@ -160,7 +155,7 @@ public class CalendarAsyncTask extends AsyncTask<String, Void, List<String>> {
     private String addEvent(String calendarID, Event event, boolean duplicationCheck) throws IOException {
         //ID가 없으면 주 캘린더에 등록한다
         if (calendarID == null) calendarID = "primary";
-
+        Log.d(TAG, "addEvent: event added " + event.getStart().toString()+ " " + event.getEnd().toString());
         //중복체크여부와 이벤트의 중복여부를 구분한다.
         if (duplicationCheck && isEventExist(calendarID, event)) {
             //중복 체크를 하고, 일정이 중복될경우
@@ -172,8 +167,11 @@ public class CalendarAsyncTask extends AsyncTask<String, Void, List<String>> {
         }
     }
 
-    //같은 일정이 존재하는지 체크.
+    //동일한 일정이 존재하는지 체크한다.
     private boolean isEventExist(String calendarID, Event event) throws IOException {
+        String eventName = event.getSummary();
+        String minTime;
+        String maxTime;
         Events events = mService.events().list(calendarID).execute();
         List<Event> items = events.getItems();
         for (Event gettedEvent : items) {
@@ -187,8 +185,20 @@ public class CalendarAsyncTask extends AsyncTask<String, Void, List<String>> {
         return false;
     }
 
+    //변동 가능한 범위 내에서 동일한 일정을 모두 삭제한다
+    public void deleteEventList_InTime(String calendarID, Event event) throws IOException {
+        DateTime minTime = event.getStart().getDateTime();
+        DateTime maxTime = event.getEnd().getDateTime();
+        Events events = mService.events().list(calendarID).setTimeMin(minTime).setTimeMax(maxTime).execute();
+        List<Event> items = events.getItems();
+        for (Event gettedEvent : items) {
+            deleteEventList_InTime(calendarID, gettedEvent);
+            Log.d(TAG, "deleteEventList_InTime:  event delted " + gettedEvent.getStart().toString()+ " " + gettedEvent.getEnd().toString());
+        }
+    }
+
     //Event에 이름, 설명, 시작/끝/타임존을 받아옴.
-    private Event makeEvent(String name, String description, String startTime, String endTime, String timeZone) {
+    public static Event makeEvent(String name, String description, String startTime, String endTime, String timeZone) {
         Event event = new Event().setSummary(name).setDescription(description);
         DateTime startDateTime = new DateTime(startTime);
         event.setStart(new EventDateTime().setDateTime(startDateTime).setTimeZone(timeZone));
@@ -208,7 +218,7 @@ public class CalendarAsyncTask extends AsyncTask<String, Void, List<String>> {
         // List the next 10 events from the primary calendar.
 //            DateTime now = new DateTime(System.currentTimeMillis());
         DateTime now = new DateTime("2017-02-01T00:00:00+09:00");
-        List<String> eventStrings = new ArrayList<String>();
+        List<String> eventStrings = new ArrayList<>();
         //Sleep캘린더 정보를 가져옴
         Events events = mService.events().list("primary")
                 .setMaxResults(100)
@@ -234,7 +244,6 @@ public class CalendarAsyncTask extends AsyncTask<String, Void, List<String>> {
 
     @Override
     protected void onPreExecute() {
-        mOutputText.setText("");
         mProgress.setMessage("Calling Google Calendar API ...");
         mProgress.show();
     }
@@ -243,10 +252,10 @@ public class CalendarAsyncTask extends AsyncTask<String, Void, List<String>> {
     protected void onPostExecute(List<String> output) {
         mProgress.hide();
         if (output == null || output.size() == 0) {
-            mOutputText.setText("No results returned.");
+            mSnackbar.setText("No results returned.").show();
         } else {
             output.add(0, "Data retrieved using the Google Calendar API:");
-            mOutputText.setText(TextUtils.join("\n", output));
+            mSnackbar.setText(TextUtils.join("\n", output)).show();
         }
     }
 
@@ -263,11 +272,11 @@ public class CalendarAsyncTask extends AsyncTask<String, Void, List<String>> {
                         ((UserRecoverableAuthIOException) mLastError).getIntent(),
                         MainActivity.REQUEST_AUTHORIZATION);
             } else {
-                mOutputText.setText("The following error occurred:\n"
-                        + mLastError.getMessage());
+                mSnackbar.setText("The following error occurred:\n"
+                        + mLastError.getMessage()).show();
             }
         } else {
-            mOutputText.setText("Request cancelled.");
+            mSnackbar.setText("Request cancelled.").show();
         }
     }
 }
