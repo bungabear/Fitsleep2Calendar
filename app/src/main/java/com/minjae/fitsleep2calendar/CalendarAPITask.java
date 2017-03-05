@@ -36,8 +36,9 @@ import java.util.List;
  * An asynchronous task that handles the Google Calendar API call.
  * Placing the API calls in their own task ensures the UI stays responsive.
  */
-class CalendarAPITask extends AsyncTask<Event, Void, List<String>> {
+class CalendarAPITask extends AsyncTask<List<Event>, Void, List<String>> {
     private static final String TAG = "F2C-FitAPITask";
+
     private com.google.api.services.calendar.Calendar mService = null;
     private Exception mLastError = null;
     private Snackbar mSnackbar;
@@ -63,6 +64,7 @@ class CalendarAPITask extends AsyncTask<Event, Void, List<String>> {
         try{
             //저장된 캘린더ID가 없으면 찾아온다.
             if(sleepCalendarID.equals("")){
+                Log.d(TAG, "CalendarAPITask: saved CalendarID is Empty");
                 sleepCalendarID = getCalendarID("Sleep");
 
                 //찾아도 없으면 만든다.
@@ -73,6 +75,10 @@ class CalendarAPITask extends AsyncTask<Event, Void, List<String>> {
                     Calendar createdCalendar = mService.calendars().insert(calendar).execute();
                     sleepCalendarID = createdCalendar.getId();
                 }
+                SharedPreferences.Editor editor = preferences.edit();
+                editor.putString("sleepCalendarID", sleepCalendarID);
+                editor.apply();
+                Log.d(TAG, "CalendarAPITask: CalendarID is " + sleepCalendarID);
             }
         } catch (IOException e) {
             e.printStackTrace();
@@ -80,11 +86,13 @@ class CalendarAPITask extends AsyncTask<Event, Void, List<String>> {
     }
 
     @Override
-    protected List<String> doInBackground(Event... params) {
-        for(Event event : params){
+    protected List<String> doInBackground(List<Event>... params) {
+        for(Event event : params[0]){
             try {
+                // Todo 완전히 똑같은 이벤트는 남기고, 시간이 다른 이벤트만 삭제후 추가 혹은 Update할 수 있도록 수정해주어야한다.
+                Log.d(TAG, "doInBackground: Try add Event " + event.getStart().getDateTime().toString() + " ~ " + event.getEnd().getDateTime().toString());
                 deleteEventList_InTime(sleepCalendarID, event);
-                addEvent(sleepCalendarID,event,false);
+                addEvent(sleepCalendarID, event, false);
             } catch (IOException e) {
                 e.printStackTrace();
             }
@@ -95,16 +103,16 @@ class CalendarAPITask extends AsyncTask<Event, Void, List<String>> {
     //CalendarList를 받아옴
 
     private List<String> getCalendarList() throws IOException {
-        String token = null;
         List<String> list = new ArrayList<>();
-        CalendarList calendarList = mService.calendarList().list().execute();
+        String token = null;
         List<CalendarListEntry> items;
         do{
+            CalendarList calendarList = mService.calendarList().list().setPageToken(token).execute();
             items = calendarList.getItems();
             for (CalendarListEntry calendarListEList : items) {
                 list.add(String.format("%s : %s", calendarListEList.getSummary(), calendarListEList.getId()));
             }
-            calendarList.getNextPageToken();
+            token = calendarList.getNextPageToken();
         }while(token != null);
         return list;
     }
@@ -141,7 +149,7 @@ class CalendarAPITask extends AsyncTask<Event, Void, List<String>> {
                         && gettedEvent.getEnd().equals(event.getEnd())) {
                     eventID = gettedEvent.getId();
                     mService.events().delete(calendarID, eventID).execute();
-                    Log.d(TAG, "deleteEvent: success");
+                    Log.d(TAG, "deleteEvent: success " + gettedEvent.getStart().getDateTime().toString() + " ~ " + gettedEvent.getEnd().getDateTime().toString());
                     return true;
                 }
                 token = events.getNextPageToken();
@@ -192,8 +200,8 @@ class CalendarAPITask extends AsyncTask<Event, Void, List<String>> {
         Events events = mService.events().list(calendarID).setTimeMin(minTime).setTimeMax(maxTime).execute();
         List<Event> items = events.getItems();
         for (Event gettedEvent : items) {
-            deleteEventList_InTime(calendarID, gettedEvent);
-            Log.d(TAG, "deleteEventList_InTime:  event delted " + gettedEvent.getStart().toString()+ " " + gettedEvent.getEnd().toString());
+            deleteEvent(calendarID, gettedEvent);
+            Log.d(TAG, "deleteEventList_InTime:  event deleted " + gettedEvent.getStart().toString()+ " " + gettedEvent.getEnd().toString());
         }
     }
 
@@ -244,19 +252,19 @@ class CalendarAPITask extends AsyncTask<Event, Void, List<String>> {
 
     @Override
     protected void onPreExecute() {
-        mProgress.setMessage("Calling Google Calendar API ...");
-        mProgress.show();
+//        mProgress.setMessage("Calling Google Calendar API ...");
+//        mProgress.show();
     }
 
     @Override
     protected void onPostExecute(List<String> output) {
-        mProgress.hide();
-        if (output == null || output.size() == 0) {
-            mSnackbar.setText("No results returned.").show();
-        } else {
-            output.add(0, "Data retrieved using the Google Calendar API:");
-            mSnackbar.setText(TextUtils.join("\n", output)).show();
-        }
+//        mProgress.hide();
+//        if (output == null || output.size() == 0) {
+//            mSnackbar.setText("No results returned.").show();
+//        } else {
+//            output.add(0, "Data retrieved using the Google Calendar API:");
+//            mSnackbar.setText(TextUtils.join("\n", output)).show();
+//        }
     }
 
     @Override

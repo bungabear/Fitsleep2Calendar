@@ -38,6 +38,7 @@ import java.util.concurrent.TimeUnit;
 class FitAPITask extends AsyncTask<Object, Object, List<Event>> {
 
     private static final String TAG = "F2C-FitAPITask";
+    static private MainActivity activity;
     private GoogleApiClient mClient;
     private CustomListViewAdapter mListData;
     private ProgressDialog mProgress;
@@ -113,7 +114,6 @@ class FitAPITask extends AsyncTask<Object, Object, List<Event>> {
                 eventList = bindSleepDataset(dataSet);
             }
         }
-        Log.d(TAG, "doInBackground:  data get");
         return eventList;
     }
 
@@ -127,6 +127,8 @@ class FitAPITask extends AsyncTask<Object, Object, List<Event>> {
     @Override
     protected void onPostExecute(List<Event> eventList) {
         super.onPostExecute(eventList);
+
+        activity.setFitAPIResult(eventList);
 
         // 커스텀 리스트뷰에 반영
         for(int i = 0 ; i < eventList.size() ; i++){
@@ -217,21 +219,24 @@ class FitAPITask extends AsyncTask<Object, Object, List<Event>> {
         // 계산한 데이터를 이벤트 리스트로 저장한다.
         boolean first = true;
         List<Event> eventList = new ArrayList<>();
-        for(int i = 0 ; i < data.size() ; i++){
+        for(int i = 0 ; i < data.size()-1 ; i++){
             //첫 값이 End면 삭제
-            if(first && data.get(i).substring(0,3).equals("end")){
+            if(first && data.get(i).substring(32).equals("end")){
                 first = false;
                 data.remove(0);
             }
-            eventList.add(CalendarAPITask.makeEvent("sleep", null, data.get(i).substring(0,29), data.get(i+1).substring(0,29), "Asia/Seoul"));
+            eventList.add(CalendarAPITask.makeEvent("수면", null, data.get(i).substring(0,29), data.get(i+1).substring(0,29), "Asia/Seoul"));
             i++;
         }
-        Log.d(TAG, "bindSleepDataset: ");
+        // Todo 캘린더 API를 호출하는곳을 바꿔주어야 할듯하다.
+        new CalendarAPITask(activity.mCredential, activity, mProgress, activity.snackbar).execute(eventList);
+
         return eventList;
     }
 
-    static GoogleApiClient buildGoogleFitClient(final Context mContext, AppCompatActivity mActivity) {
+    static GoogleApiClient buildGoogleFitClient(final Context mContext, MainActivity mActivity) {
         Log.i(TAG, mContext.getString(R.string.building_google_fit_clinet));
+        activity = mActivity;
         GoogleApiClient client = new GoogleApiClient.Builder(mContext)
                 .addApi(Fitness.HISTORY_API).addScope(new Scope(Scopes.FITNESS_ACTIVITY_READ))
                 .addConnectionCallbacks(

@@ -41,8 +41,9 @@ public class MainActivity extends AppCompatActivity
     private Button mCallApiButton, mGetFitData;
     private GoogleApiClient client = null;
     private CustomListViewAdapter mListViewAdapter;
-    private Snackbar snackbar;
-    ProgressDialog mProgress;
+    private List<Event> eventList;
+    public Snackbar snackbar;
+    public ProgressDialog mProgress;
 
     static final int REQUEST_ACCOUNT_PICKER = 1000;
     static final int REQUEST_AUTHORIZATION = 1001;
@@ -63,12 +64,12 @@ public class MainActivity extends AppCompatActivity
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
-        initView();
-
         // Initialize credentials and service object.
         mCredential = GoogleAccountCredential.usingOAuth2(
                 getApplicationContext(), Arrays.asList(SCOPES))
                 .setBackOff(new ExponentialBackOff());
+        initView();
+
 
     }
 
@@ -102,17 +103,11 @@ public class MainActivity extends AppCompatActivity
                 if (client == null) {
                     client = FitAPITask.buildGoogleFitClient(getApplicationContext(), mainActivity);
                 }
-                try {
-                    List<Event> eventList = new FitAPITask(client, mProgress,mListViewAdapter).execute().get();
-                    Log.d(TAG, "");
-                    for(Event event : eventList){
-                        new CalendarAPITask(mCredential, mainActivity, mProgress, snackbar).execute(event);
-                    }
-                } catch (InterruptedException e) {
-                    e.printStackTrace();
-                } catch (ExecutionException e) {
-                    e.printStackTrace();
-                }
+                getResultsFromApi("");
+                FitAPITask fitAPITask = new FitAPITask(client, mProgress,mListViewAdapter);
+                fitAPITask.execute();
+                Log.d(TAG, "");
+
                 mGetFitData.setEnabled(true);
             }
         });
@@ -135,8 +130,10 @@ public class MainActivity extends AppCompatActivity
             chooseAccount();
         } else if (!isDeviceOnline()) {
             snackbar.setText(R.string.no_network).show();
-        } else {
+        } else if(tag.equals("CallAPI")){
             new CalendarAPITask(mCredential, this, mProgress, snackbar).execute();
+        } else {
+
         }
     }
 
@@ -158,7 +155,7 @@ public class MainActivity extends AppCompatActivity
                     .getString(PREF_ACCOUNT_NAME, null);
             if (accountName != null) {
                 mCredential.setSelectedAccountName(accountName);
-                getResultsFromApi("CallAPI");
+//                getResultsFromApi("CallAPI");
             } else {
                 // Start a dialog from which the user can choose an account
                 startActivityForResult(
@@ -328,7 +325,7 @@ public class MainActivity extends AppCompatActivity
                 REQUEST_GOOGLE_PLAY_SERVICES);
         dialog.show();
     }
-
-
-
+    public void setFitAPIResult(List<Event> result){
+        eventList = result;
+    };
 }
