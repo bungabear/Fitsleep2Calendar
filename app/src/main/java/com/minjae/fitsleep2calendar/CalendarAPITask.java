@@ -87,12 +87,15 @@ class CalendarAPITask extends AsyncTask<List<Event>, Void, List<String>> {
 
     @Override
     protected List<String> doInBackground(List<Event>... params) {
-        for(Event event : params[0]){
+        List<Event> eventList = params[0];
+        for(int i = 0 ; i < eventList.size() ; i++){
             try {
                 // Todo 완전히 똑같은 이벤트는 남기고, 시간이 다른 이벤트만 삭제후 추가 혹은 Update할 수 있도록 수정해주어야한다.
-                Log.d(TAG, "doInBackground: Try add Event " + event.getStart().getDateTime().toString() + " ~ " + event.getEnd().getDateTime().toString());
-                deleteEventList_InTime(sleepCalendarID, event);
-                addEvent(sleepCalendarID, event, false);
+                Log.d(TAG, "doInBackground: Try add Event "+ i + " " + eventList.get(i).getStart().getDateTime().toString() + " ~ " + eventList.get(i).getEnd().getDateTime().toString());
+                if(!isEventExist(sleepCalendarID, eventList.get(i))){
+                    deleteEventList_InTime(sleepCalendarID, eventList.get(i));
+                    addEvent(sleepCalendarID, eventList.get(i), false);
+                }
             } catch (IOException e) {
                 e.printStackTrace();
             }
@@ -200,8 +203,8 @@ class CalendarAPITask extends AsyncTask<List<Event>, Void, List<String>> {
         Events events = mService.events().list(calendarID).setTimeMin(minTime).setTimeMax(maxTime).execute();
         List<Event> items = events.getItems();
         for (Event gettedEvent : items) {
-            deleteEvent(calendarID, gettedEvent);
-            Log.d(TAG, "deleteEventList_InTime:  event deleted " + gettedEvent.getStart().toString()+ " " + gettedEvent.getEnd().toString());
+            mService.events().delete(calendarID, gettedEvent.getId()).execute();
+            Log.d(TAG, "deleteEventList_InTime : event deleted " + gettedEvent.getStart().toString()+ " " + gettedEvent.getEnd().toString());
         }
     }
 
