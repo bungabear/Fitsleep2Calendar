@@ -35,7 +35,7 @@ import java.util.concurrent.TimeUnit;
  * Google Fit에서 데이터를 받아오는 스레드.
  */
 
-class FitAPITask extends AsyncTask<Object, Object, List<Event>> {
+class FitAPITask extends AsyncTask<String, Object, List<Event>> {
 
     private static final String TAG = "F2C-FitAPITask";
     static private MainActivity activity;
@@ -50,7 +50,7 @@ class FitAPITask extends AsyncTask<Object, Object, List<Event>> {
     }
 
     @Override
-    protected List<Event> doInBackground(Object... params) {
+    protected List<Event> doInBackground(String... params) {
 
         //받아올 기간을 설정한다.
         java.util.Calendar cal = java.util.Calendar.getInstance();
@@ -58,7 +58,7 @@ class FitAPITask extends AsyncTask<Object, Object, List<Event>> {
         cal.setTime(now);
         long endTime = cal.getTimeInMillis();
         // Todo 기간 설정부분 만들기
-        cal.add(Calendar.MONTH, -1);
+        cal.add(Calendar.DAY_OF_WEEK, -1 * Integer.parseInt(params[0]));
         long startTime = cal.getTimeInMillis();
 
         DateFormat dateFormat = DateFormat.getDateInstance();
@@ -127,9 +127,7 @@ class FitAPITask extends AsyncTask<Object, Object, List<Event>> {
     @Override
     protected void onPostExecute(List<Event> eventList) {
         super.onPostExecute(eventList);
-
-        activity.setFitAPIResult(eventList);
-
+        mListData.clear();
         // 커스텀 리스트뷰에 반영
         for(int i = 0 ; i < eventList.size() ; i++){
             mListData.addItem(String.valueOf(i), eventList.get(i).getStart().getDateTime().toString(), eventList.get(i).getEnd().getDateTime().toString(), false , null);
@@ -228,8 +226,9 @@ class FitAPITask extends AsyncTask<Object, Object, List<Event>> {
             eventList.add(CalendarAPITask.makeEvent("수면", null, data.get(i).substring(0,29), data.get(i+1).substring(0,29), "Asia/Seoul"));
             i++;
         }
-        // Todo 캘린더 API를 호출하는곳을 바꿔주어야 할듯하다.
-        new CalendarAPITask(activity.mCredential, activity, mProgress, activity.snackbar).execute(eventList);
+
+        // Give EventList to Mainactivity
+        activity.setEventList(eventList);
 
         return eventList;
     }

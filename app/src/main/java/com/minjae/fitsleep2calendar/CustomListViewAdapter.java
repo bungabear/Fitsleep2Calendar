@@ -22,11 +22,15 @@ class CustomListViewAdapter extends BaseAdapter {
         mContext = context;
     }
 
-    void addItem(String id, String startTime, String endTime, boolean isExclude, String event_ID){
+    public void addItem(String id, String startTime, String endTime, boolean isExclude, String event_ID){
         if(event_ID == null) event_ID = "x";
         CustomListData addInfo = new CustomListData(id, startTime, endTime,isExclude, event_ID);
 
         mListData.add(addInfo);
+    }
+
+    public void clear(){
+        mListData.clear();
     }
 
     @Override

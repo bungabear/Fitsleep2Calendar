@@ -16,6 +16,7 @@ import android.support.v7.app.AppCompatActivity;
 import android.util.Log;
 import android.view.View;
 import android.widget.Button;
+import android.widget.EditText;
 import android.widget.ListView;
 
 import com.google.android.gms.common.ConnectionResult;
@@ -33,10 +34,10 @@ import pub.devrel.easypermissions.AfterPermissionGranted;
 import pub.devrel.easypermissions.EasyPermissions;
 
 public class MainActivity extends AppCompatActivity
-        implements EasyPermissions.PermissionCallbacks {
+        implements EasyPermissions.PermissionCallbacks, View.OnClickListener {
     GoogleAccountCredential mCredential;
     private ListView listView;
-    private Button mCallApiButton, mGetFitData;
+    private Button mGetFitData, mPutCalendarEvent;
     private GoogleApiClient client = null;
     private CustomListViewAdapter mListViewAdapter;
     private List<Event> eventList;
@@ -49,7 +50,6 @@ public class MainActivity extends AppCompatActivity
     static final int REQUEST_PERMISSION_GET_ACCOUNTS = 1003;
     static final String TAG = "Fitsleep2Calendar";
 
-    private static final String BUTTON_TEXT = "Call Google Calendar API";
     private static final String PREF_ACCOUNT_NAME = "accountName";
     private static final String[] SCOPES = {CalendarScopes.CALENDAR};
 
@@ -78,39 +78,18 @@ public class MainActivity extends AppCompatActivity
         mListViewAdapter = new CustomListViewAdapter(this);
         listView.setAdapter(mListViewAdapter);
         snackbar = Snackbar.make(listView, "", Snackbar.LENGTH_SHORT);
+        mProgress = new ProgressDialog(this);
 
-        mCallApiButton = (Button)findViewById(R.id.call_api);
-        mCallApiButton.setText(BUTTON_TEXT);
-        mCallApiButton.setTag(getString(R.string.call_api));
-        mCallApiButton.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                mCallApiButton.setEnabled(false);
-                getResultsFromApi((String) v.getTag());
-                mCallApiButton.setEnabled(true);
-            }
-        });
 
         mGetFitData = (Button)findViewById(R.id.get_fitdata);
-        mGetFitData.setText(R.string.get_fitdata);
-        final MainActivity mainActivity = this;
-        mGetFitData.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                mGetFitData.setEnabled(false);
-                if (client == null) {
-                    client = FitAPITask.buildGoogleFitClient(getApplicationContext(), mainActivity);
-                }
-                getResultsFromApi("");
-                FitAPITask fitAPITask = new FitAPITask(client, mProgress,mListViewAdapter);
-                fitAPITask.execute();
-                Log.d(TAG, "");
+        mGetFitData.setText("Fit에서 데이터가져오기");
+        mGetFitData.setOnClickListener(this);
 
-                mGetFitData.setEnabled(true);
-            }
-        });
+        mPutCalendarEvent = (Button)findViewById(R.id.sync_calendar);
+        mPutCalendarEvent.setText("캘린더로 보내기");
+        mPutCalendarEvent.setTag(getString(R.string.call_api));
+        mPutCalendarEvent.setOnClickListener(this);
 
-        mProgress = new ProgressDialog(this);
 
     }
 
@@ -121,17 +100,15 @@ public class MainActivity extends AppCompatActivity
      * of the preconditions are not satisfied, the app will prompt the user as
      * appropriate.
      */
-    private void getResultsFromApi(String tag) {
+    private void getResultsFromApi() {
         if (!isGooglePlayServicesAvailable()) {
             acquireGooglePlayServices();
         } else if (mCredential.getSelectedAccountName() == null) {
             chooseAccount();
         } else if (!isDeviceOnline()) {
             snackbar.setText(R.string.no_network).show();
-        } else if(tag.equals("CallAPI")){
-            new CalendarAPITask(mCredential, this, mProgress, snackbar).execute();
         } else {
-
+            new CalendarAPITask(mCredential, this, mProgress, snackbar).execute(eventList);
         }
     }
 
@@ -153,7 +130,7 @@ public class MainActivity extends AppCompatActivity
                     .getString(PREF_ACCOUNT_NAME, null);
             if (accountName != null) {
                 mCredential.setSelectedAccountName(accountName);
-//                getResultsFromApi("CallAPI");
+                getResultsFromApi();
             } else {
                 // Start a dialog from which the user can choose an account
                 startActivityForResult(
@@ -195,7 +172,7 @@ public class MainActivity extends AppCompatActivity
                     snackbar.setText(
                             R.string.google_play_is_not_found).show();
                 } else {
-                    getResultsFromApi("CallAPI");
+                    getResultsFromApi();
                 }
                 break;
             case REQUEST_ACCOUNT_PICKER:
@@ -210,13 +187,13 @@ public class MainActivity extends AppCompatActivity
                         editor.putString(PREF_ACCOUNT_NAME, accountName);
                         editor.apply();
                         mCredential.setSelectedAccountName(accountName);
-//                        getResultsFromApi("CallAPI");
+                        getResultsFromApi();
                     }
                 }
                 break;
             case REQUEST_AUTHORIZATION:
                 if (resultCode == RESULT_OK) {
-//                    getResultsFromApi("CallAPI");
+                    getResultsFromApi();
                 }
                 break;
         }
@@ -323,7 +300,37 @@ public class MainActivity extends AppCompatActivity
                 REQUEST_GOOGLE_PLAY_SERVICES);
         dialog.show();
     }
-    public void setFitAPIResult(List<Event> result){
-        eventList = result;
-    };
+
+    @Override
+    public void onClick(View v) {
+        switch (v.getId()){
+            case R.id.sync_calendar:
+                mPutCalendarEvent.setEnabled(false);
+                if(eventList != null){
+                    getResultsFromApi();
+                } else {
+                    snackbar.setText("Fit데이터를 먼저 불러와주세요").show();
+                }
+                mPutCalendarEvent.setEnabled(true);
+                break;
+            case R.id.get_fitdata:
+                mGetFitData.setEnabled(false);
+                if (client == null) {
+                    final MainActivity mainActivity = this;
+                    client = FitAPITask.buildGoogleFitClient(getApplicationContext(), mainActivity);
+                }
+                String syncDays = ((EditText)findViewById(R.id.sync_days)).getText().toString();
+                if(!syncDays.equals("")){
+                    new FitAPITask(client, mProgress, mListViewAdapter).execute(syncDays);
+                } else {
+                    snackbar.setText("동기화할 일 수를 입력해 주세요").show();
+                }
+
+                mGetFitData.setEnabled(true);
+                break;
+        }
+    }
+    public void setEventList(List<Event> eventList){
+        this.eventList = eventList;
+    }
 }

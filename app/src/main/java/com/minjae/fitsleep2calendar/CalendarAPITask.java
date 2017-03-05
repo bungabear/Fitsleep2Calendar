@@ -92,10 +92,10 @@ class CalendarAPITask extends AsyncTask<List<Event>, Void, List<String>> {
             try {
                 // Todo 완전히 똑같은 이벤트는 남기고, 시간이 다른 이벤트만 삭제후 추가 혹은 Update할 수 있도록 수정해주어야한다.
                 Log.d(TAG, "doInBackground: Try add Event "+ i + " " + eventList.get(i).getStart().getDateTime().toString() + " ~ " + eventList.get(i).getEnd().getDateTime().toString());
-                if(!isEventExist(sleepCalendarID, eventList.get(i))){
-                    deleteEventList_InTime(sleepCalendarID, eventList.get(i));
-                    addEvent(sleepCalendarID, eventList.get(i), false);
-                }
+
+                deleteEventList_InTime(sleepCalendarID, eventList.get(i));
+                addEvent(sleepCalendarID, eventList.get(i), false);
+
             } catch (IOException e) {
                 e.printStackTrace();
             }
@@ -255,13 +255,13 @@ class CalendarAPITask extends AsyncTask<List<Event>, Void, List<String>> {
 
     @Override
     protected void onPreExecute() {
-//        mProgress.setMessage("Calling Google Calendar API ...");
-//        mProgress.show();
+        mProgress.setMessage("Calling Google Calendar API ...");
+        mProgress.show();
     }
 
     @Override
     protected void onPostExecute(List<String> output) {
-//        mProgress.hide();
+        mProgress.hide();
 //        if (output == null || output.size() == 0) {
 //            mSnackbar.setText("No results returned.").show();
 //        } else {
