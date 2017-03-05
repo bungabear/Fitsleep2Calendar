@@ -5,6 +5,8 @@ import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.BaseAdapter;
+import android.widget.CheckBox;
+import android.widget.CompoundButton;
 import android.widget.TextView;
 
 import java.util.ArrayList;
@@ -14,7 +16,7 @@ import java.util.ArrayList;
  * 커스팀 리스트뷰 어댑터. 커스텀 리스트 데이터를 배열로 담아 관리한다.
  */
 
-class CustomListViewAdapter extends BaseAdapter {
+class CustomListViewAdapter extends BaseAdapter{
     private Context mContext = null;
     private ArrayList<CustomListData> mListData = new ArrayList<>();
 
@@ -39,8 +41,12 @@ class CustomListViewAdapter extends BaseAdapter {
     }
 
     @Override
-    public Object getItem(int position) {
+    public CustomListData getItem(int position) {
         return mListData.get(position);
+    }
+
+    public ArrayList<CustomListData> getListData(){
+        return mListData;
     }
 
     @Override
@@ -50,7 +56,7 @@ class CustomListViewAdapter extends BaseAdapter {
 
     //아이템에 들어갈 레이아웃을 지정
     @Override
-    public View getView(int position, View convertView, ViewGroup parent) {
+    public View getView(final int position, View convertView, ViewGroup parent) {
         CustomViewHolder holder;
         //화면에 캐쉬가 없으면 새로 생성해줌
         if(convertView == null){
@@ -62,7 +68,7 @@ class CustomListViewAdapter extends BaseAdapter {
             holder.id = (TextView) convertView.findViewById(R.id.id);
             holder.startTime = (TextView) convertView.findViewById(R.id.startTime);
             holder.endTime = (TextView) convertView.findViewById(R.id.endTime);
-            holder.isExclude = (TextView) convertView.findViewById(R.id.isExclude);
+            holder.isExclude = (CheckBox) convertView.findViewById(R.id.isExclude);
             holder.event_ID = (TextView) convertView.findViewById(R.id.event_ID);
 
             convertView.setTag(holder);
@@ -74,8 +80,14 @@ class CustomListViewAdapter extends BaseAdapter {
         holder.id.setText(listData.id);
         holder.startTime.setText(listData.startTime);
         holder.endTime.setText(listData.endTime);
-        holder.isExclude.setText((listData.isExclude) ? "T" : "F");
+        holder.isExclude.setChecked(!(listData.isExclude));
         holder.event_ID.setText(listData.event_ID);
+        holder.isExclude.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
+            @Override
+            public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
+                mListData.get(position).isExclude = !isChecked;
+            }
+        });
 
         return convertView;
     }
@@ -84,12 +96,12 @@ class CustomListViewAdapter extends BaseAdapter {
         private TextView id ;
         private TextView startTime ;
         private TextView endTime ;
-        private TextView isExclude ;
+        private CheckBox isExclude ;
         private TextView event_ID ;
 
     }
     //ListView Item 객체들이 가질 데이터를 담는 클래스
-    private class CustomListData {
+    public class CustomListData {
         private String id;
         private String startTime;
         private String endTime;
@@ -102,6 +114,28 @@ class CustomListViewAdapter extends BaseAdapter {
             endTime = eT;
             isExclude = iE;
             event_ID = eID;
+        }
+
+        public String getStartTime(){
+            return startTime;
+        }
+        public String getEndTime(){
+            return endTime;
+        }
+        public String getFormattedStartTime(){
+            return event_ID.split(" ~ ")[0] + "T" + startTime.substring(6) + ":00+09:00";
+        }
+        public String getFormattedEndTime(){
+            return event_ID.split(" ~ ")[1] + "T" + endTime.substring(6) + ":00+09:00";
+        }
+        public String getEvent_ID(){
+            return event_ID;
+        }
+        public String getID(){
+            return id;
+        }
+        public boolean getisExclude(){
+            return isExclude;
         }
     }
 

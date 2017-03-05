@@ -5,7 +5,6 @@ import android.content.Context;
 import android.content.SharedPreferences;
 import android.os.AsyncTask;
 import android.support.design.widget.Snackbar;
-import android.text.TextUtils;
 import android.util.Log;
 
 import com.google.api.client.extensions.android.http.AndroidHttp;
@@ -36,7 +35,7 @@ import java.util.List;
  * An asynchronous task that handles the Google Calendar API call.
  * Placing the API calls in their own task ensures the UI stays responsive.
  */
-class CalendarAPITask extends AsyncTask<List<Event>, Void, List<String>> {
+class CalendarAPITask extends AsyncTask<CustomListViewAdapter, Void, List<String>> {
     private static final String TAG = "F2C-FitAPITask";
 
     private com.google.api.services.calendar.Calendar mService = null;
@@ -59,8 +58,8 @@ class CalendarAPITask extends AsyncTask<List<Event>, Void, List<String>> {
     }
 
     @Override
-    protected List<String> doInBackground(List<Event>... params) {
-        List<Event> eventList = params[0];
+    protected List<String> doInBackground(CustomListViewAdapter... params) {
+
         //저장된 캘린더 ID를 가져옴.
         SharedPreferences preferences = mActivityCompat.getPreferences(Context.MODE_PRIVATE);
         sleepCalendarID = preferences.getString("sleepCalendarID","");
@@ -87,13 +86,21 @@ class CalendarAPITask extends AsyncTask<List<Event>, Void, List<String>> {
         } catch (IOException e) {
             e.printStackTrace();
         }
-        for(int i = 0 ; i < eventList.size() ; i++){
+
+        // Add Event to Calendar
+
+//        List<Event> eventList = params[0];
+        CustomListViewAdapter listData = params[0];
+        for(CustomListViewAdapter.CustomListData eventData : listData.getListData()){
             try {
                 // Todo 완전히 똑같은 이벤트는 남기고, 시간이 다른 이벤트만 삭제후 추가 혹은 Update할 수 있도록 수정해주어야한다.
-                Log.d(TAG, "doInBackground: Try add Event "+ i + " " + eventList.get(i).getStart().getDateTime().toString() + " ~ " + eventList.get(i).getEnd().getDateTime().toString());
-
-                deleteEventList_InTime(sleepCalendarID, eventList.get(i));
-                addEvent(sleepCalendarID, eventList.get(i), false);
+                Log.d(TAG, "doInBackground: Try add Event " + eventData.getStartTime() + " ~ " + eventData.getEndTime());
+                if(eventData.getisExclude()){
+                    continue;
+                }
+                Event event = makeEvent("수면", null , eventData.getFormattedStartTime(), eventData.getFormattedEndTime(), "Asia/Seoul");
+                deleteEventList_InTime(sleepCalendarID, event);
+                addEvent(sleepCalendarID, event, false);
 
             } catch (IOException e) {
                 e.printStackTrace();

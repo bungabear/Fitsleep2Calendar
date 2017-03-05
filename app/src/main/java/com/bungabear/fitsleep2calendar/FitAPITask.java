@@ -130,7 +130,11 @@ class FitAPITask extends AsyncTask<String, Object, List<Event>> {
         mListData.clear();
         // 커스텀 리스트뷰에 반영
         for(int i = 0 ; i < eventList.size() ; i++){
-            mListData.addItem(String.valueOf(i), eventList.get(i).getStart().getDateTime().toString(), eventList.get(i).getEnd().getDateTime().toString(), false , null);
+            mListData.addItem(String.valueOf(i),
+                    eventList.get(i).getStart().getDateTime().toString().substring(5,16).replace('T', ' '),
+                    eventList.get(i).getEnd().getDateTime().toString().substring(5,16).replace('T', ' '),
+                    false ,
+                    eventList.get(i).getStart().getDateTime().toString().substring(0,10) + " ~ " + eventList.get(i).getEnd().getDateTime().toString().substring(0,10));
         }
         mListData.notifyDataSetChanged();
         mProgress.hide();

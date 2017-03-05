@@ -108,7 +108,7 @@ public class MainActivity extends AppCompatActivity
         } else if (!isDeviceOnline()) {
             snackbar.setText(R.string.no_network).show();
         } else {
-            new CalendarAPITask(mCredential, this, mProgress, snackbar).execute(eventList);
+            new CalendarAPITask(mCredential, this, mProgress, snackbar).execute(mListViewAdapter);
         }
     }
 
