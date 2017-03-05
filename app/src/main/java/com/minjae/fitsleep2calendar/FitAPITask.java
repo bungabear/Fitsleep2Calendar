@@ -58,7 +58,7 @@ class FitAPITask extends AsyncTask<Object, Object, List<Event>> {
         cal.setTime(now);
         long endTime = cal.getTimeInMillis();
         // Todo 기간 설정부분 만들기
-        cal.add(Calendar.MONTH, -1);
+        cal.add(Calendar.WEEK_OF_MONTH, -1);
         long startTime = cal.getTimeInMillis();
 
         DateFormat dateFormat = DateFormat.getDateInstance();
