@@ -1,4 +1,4 @@
-package com.minjae.fitsleep2calendar;
+package com.bungabear.fitsleep2calendar;
 
 import android.content.Context;
 import android.view.LayoutInflater;

@@ -1,4 +1,4 @@
-package com.minjae.fitsleep2calendar;
+package com.bungabear.fitsleep2calendar;
 
 import android.app.ProgressDialog;
 import android.content.Context;
@@ -56,7 +56,11 @@ class CalendarAPITask extends AsyncTask<List<Event>, Void, List<String>> {
                 transport, jsonFactory, credential)
                 .setApplicationName("Fitsleep2Calendar")
                 .build();
+    }
 
+    @Override
+    protected List<String> doInBackground(List<Event>... params) {
+        List<Event> eventList = params[0];
         //저장된 캘린더 ID를 가져옴.
         SharedPreferences preferences = mActivityCompat.getPreferences(Context.MODE_PRIVATE);
         sleepCalendarID = preferences.getString("sleepCalendarID","");
@@ -83,11 +87,6 @@ class CalendarAPITask extends AsyncTask<List<Event>, Void, List<String>> {
         } catch (IOException e) {
             e.printStackTrace();
         }
-    }
-
-    @Override
-    protected List<String> doInBackground(List<Event>... params) {
-        List<Event> eventList = params[0];
         for(int i = 0 ; i < eventList.size() ; i++){
             try {
                 // Todo 완전히 똑같은 이벤트는 남기고, 시간이 다른 이벤트만 삭제후 추가 혹은 Update할 수 있도록 수정해주어야한다.
@@ -122,19 +121,18 @@ class CalendarAPITask extends AsyncTask<List<Event>, Void, List<String>> {
 
     //Summary명으로 캘린더 ID를 받아옴
     private String getCalendarID(String summaryName) throws IOException {
-        String token = null;
-        List<String> list = new ArrayList<>();
-        CalendarList calendarList = mService.calendarList().list().execute();
-        List<CalendarListEntry> items;
-        do{
-            items = calendarList.getItems();
-            for (CalendarListEntry calendarListEList : items) {
-                if (calendarListEList.getSummary().equals(summaryName)) {
-                    return calendarListEList.getId();
+        String pageToken = null;
+        do {
+            CalendarList calendarList = mService.calendarList().list().setPageToken(pageToken).execute();
+            List<CalendarListEntry> items = calendarList.getItems();
+
+            for (CalendarListEntry calendarListEntry : items) {
+                if(calendarListEntry.getSummary().equals(summaryName)){
+                    return calendarListEntry.getId();
                 }
             }
-            calendarList.getNextPageToken();
-        }while(token != null);
+            pageToken = calendarList.getNextPageToken();
+        } while (pageToken != null);
         return null;
     }
 
@@ -232,7 +230,7 @@ class CalendarAPITask extends AsyncTask<List<Event>, Void, List<String>> {
         List<String> eventStrings = new ArrayList<>();
         //Sleep캘린더 정보를 가져옴
         Events events = mService.events().list("primary")
-                .setMaxResults(100)
+                .setMaxResults(10)
                 .setTimeMin(now)
                 .setOrderBy("startTime")
                 .setSingleEvents(true)
