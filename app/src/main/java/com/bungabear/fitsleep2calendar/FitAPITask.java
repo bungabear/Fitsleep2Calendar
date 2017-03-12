@@ -5,9 +5,9 @@ import android.app.ProgressDialog;
 import android.content.Context;
 import android.os.AsyncTask;
 import android.os.Bundle;
-import android.support.design.widget.Snackbar;
 import android.support.v7.app.AppCompatActivity;
 import android.util.Log;
+import android.widget.Toast;
 
 import com.google.android.gms.common.ConnectionResult;
 import com.google.android.gms.common.Scopes;
@@ -38,15 +38,28 @@ import java.util.concurrent.TimeUnit;
 class FitAPITask extends AsyncTask<String, Object, List<Event>> {
 
     private static final String TAG = "F2C-FitAPITask";
-    static private MainActivity activity;
-    private GoogleApiClient mClient;
+    private static GoogleApiClient mClient;
     private CustomListViewAdapter mListData;
     private ProgressDialog mProgress;
+    private boolean serviceMode = false;
+    public interface AsyncResponse{
+        void processFinish(List<Event> eventList);
+    }
+    public AsyncResponse mDelegate = null;
     FitAPITask(GoogleApiClient client, ProgressDialog progress, CustomListViewAdapter outputText) {
         mClient = client;
         mProgress =  progress;
         mListData = outputText;
-        Log.d(TAG, "FitAPITask: created");
+        Log.d(TAG, "FitAPITask: created in Activity");
+    }
+
+    FitAPITask(GoogleApiClient client, AsyncResponse delegate) {
+        mClient = client;
+        mProgress = null;
+        mListData = null;
+        serviceMode = true;
+        mDelegate = delegate;
+        Log.d(TAG, "FitAPITask: created in Service");
     }
 
     @Override
@@ -62,8 +75,7 @@ class FitAPITask extends AsyncTask<String, Object, List<Event>> {
         long startTime = cal.getTimeInMillis();
 
         DateFormat dateFormat = DateFormat.getDateInstance();
-        Log.i(TAG, "Range Start: " + dateFormat.format(startTime));
-        Log.i(TAG, "Range End: " + dateFormat.format(endTime));
+        Log.i(TAG, "Sync Range " + dateFormat.format(startTime) + " ~ "+ dateFormat.format(endTime));
 
         //DataReadResult를 빌드한다. DataType을 바꿔 다른 정보를 받아 올 수 있음.
         //수면 정보는 ACTIVITY에 속해있다.
@@ -94,7 +106,8 @@ class FitAPITask extends AsyncTask<String, Object, List<Event>> {
 
 
         DataReadResult dataReadResult =
-                Fitness.HistoryApi.readData(mClient, dataReadRequest).await(1, TimeUnit.MINUTES);
+                Fitness.HistoryApi.readData(mClient, dataReadRequest).await(30, TimeUnit.SECONDS);
+        Log.d(TAG, "doInBackground: Fit data Received");
         List<Event>eventList = new ArrayList<>();
         // 데이터가 Bucket으로 오는경우. Aggregate로 조회했을경우이다.
         if (dataReadResult.getBuckets().size() > 0) {
@@ -114,30 +127,35 @@ class FitAPITask extends AsyncTask<String, Object, List<Event>> {
                 eventList = bindSleepDataset(dataSet);
             }
         }
+
+        if(mDelegate != null){
+            mDelegate.processFinish(eventList);
+        }
         return eventList;
     }
 
     @Override
     protected void onPreExecute() {
         super.onPreExecute();
-        mProgress.setMessage("Connecting To Google Fit");
-        mProgress.show();
+        if(!serviceMode){
+            mProgress.setMessage("Connecting To Google Fit");
+            mProgress.show();
+        }
     }
 
     @Override
     protected void onPostExecute(List<Event> eventList) {
         super.onPostExecute(eventList);
-        mListData.clear();
-        // 커스텀 리스트뷰에 반영
-        for(int i = 0 ; i < eventList.size() ; i++){
-            mListData.addItem(String.valueOf(i),
-                    eventList.get(i).getStart().getDateTime().toString().substring(5,16).replace('T', ' '),
-                    eventList.get(i).getEnd().getDateTime().toString().substring(5,16).replace('T', ' '),
-                    false ,
-                    eventList.get(i).getStart().getDateTime().toString().substring(0,10) + " ~ " + eventList.get(i).getEnd().getDateTime().toString().substring(0,10));
+        if(!serviceMode){
+            mListData.clear();
+            // 커스텀 리스트뷰에 반영
+            for(int i = 0 ; i < eventList.size() ; i++){
+                mListData.addItem(String.valueOf(i), eventList.get(i));
+            }
+            mListData.notifyDataSetChanged();
+            mProgress.hide();
         }
-        mListData.notifyDataSetChanged();
-        mProgress.hide();
+        this.cancel(true);
     }
 
     // Todo Awake로 수면기록을 나누어 넣을지 사용자에게 물어보아야한다.
@@ -231,50 +249,40 @@ class FitAPITask extends AsyncTask<String, Object, List<Event>> {
             i++;
         }
 
-        // Give EventList to Mainactivity
-        activity.setEventList(eventList);
-
         return eventList;
     }
 
-    static GoogleApiClient buildGoogleFitClient(final Context mContext, MainActivity mActivity) {
-        Log.i(TAG, mContext.getString(R.string.building_google_fit_clinet));
-        activity = mActivity;
-        GoogleApiClient client = new GoogleApiClient.Builder(mContext)
-                .addApi(Fitness.HISTORY_API).addScope(new Scope(Scopes.FITNESS_ACTIVITY_READ))
-                .addConnectionCallbacks(
-                        new GoogleApiClient.ConnectionCallbacks() {
-                            @Override
-                            public void onConnected(Bundle bundle) {
-                                Log.i(TAG, "Connected!!!");
-                                // Now you can make calls to the Fitness APIs.
-                            }
+    static GoogleApiClient buildGoogleFitClient(final Context mContext) {
+        if(mClient != null){
+            return mClient;
+        } else {
+            GoogleApiClient client = new GoogleApiClient.Builder(mContext)
+                    .addApi(Fitness.HISTORY_API).addScope(new Scope(Scopes.FITNESS_ACTIVITY_READ))
+                    .addConnectionCallbacks(
+                            new GoogleApiClient.ConnectionCallbacks() {
+                                @Override
+                                public void onConnected(Bundle bundle) {
+                                    Log.i(TAG, "Connected!!!");
+                                    // Now you can make calls to the Fitness APIs.
+                                }
 
-                            @Override
-                            public void onConnectionSuspended(int i) {
-                                // If your connection to the sensor gets lost at some point,
-                                // you'll be able to determine the reason and react to it here.
-                                if (i == GoogleApiClient.ConnectionCallbacks.CAUSE_NETWORK_LOST) {
-                                    Log.i(TAG, "Connection lost.  Cause: Network Lost.");
-                                } else if (i
-                                        == GoogleApiClient.ConnectionCallbacks.CAUSE_SERVICE_DISCONNECTED) {
-                                    Log.i(TAG,
-                                            "Connection lost.  Reason: Service Disconnected");
+                                @Override
+                                public void onConnectionSuspended(int i) {
+                                    // If your connection to the sensor gets lost at some point,
+                                    // you'll be able to determine the reason and react to it here.
+                                    if (i == GoogleApiClient.ConnectionCallbacks.CAUSE_NETWORK_LOST) {
+                                        Log.i(TAG, "Connection lost.  Cause: Network Lost.");
+                                    } else if (i
+                                            == GoogleApiClient.ConnectionCallbacks.CAUSE_SERVICE_DISCONNECTED) {
+                                        Log.i(TAG,
+                                                "Connection lost.  Reason: Service Disconnected");
+                                    }
                                 }
                             }
-                        }
-                )
-                .enableAutoManage(mActivity, 0, new GoogleApiClient.OnConnectionFailedListener() {
-                    @Override
-                    public void onConnectionFailed(ConnectionResult result) {
-                        Log.i(TAG, "Google Play services connection failed. Cause: " +
-                                result.toString());
-                        Snackbar.make(((Activity)mContext).getWindow().getDecorView().findViewById(R.id.listivew), "Exception while connecting to Google Play services: " + result.getErrorMessage(), Snackbar.LENGTH_SHORT).show();
-                    }
-                })
-                .build();
-        return client;
+                    )
+                    .build();
+            return client;
+        }
     }
-
 
 }

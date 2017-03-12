@@ -6,6 +6,7 @@ import android.content.SharedPreferences;
 import android.os.AsyncTask;
 import android.support.design.widget.Snackbar;
 import android.util.Log;
+import android.widget.Toast;
 
 import com.google.api.client.extensions.android.http.AndroidHttp;
 import com.google.api.client.googleapis.extensions.android.gms.auth.GoogleAccountCredential;
@@ -35,7 +36,7 @@ import java.util.List;
  * An asynchronous task that handles the Google Calendar API call.
  * Placing the API calls in their own task ensures the UI stays responsive.
  */
-class CalendarAPITask extends AsyncTask<CustomListViewAdapter, Void, List<String>> {
+class CalendarAPITask extends AsyncTask<List<Event>, Void, List<Event>> {
     private static final String TAG = "F2C-FitAPITask";
 
     private com.google.api.services.calendar.Calendar mService = null;
@@ -44,6 +45,8 @@ class CalendarAPITask extends AsyncTask<CustomListViewAdapter, Void, List<String
     private ProgressDialog mProgress;
     private MainActivity mActivityCompat;
     private String sleepCalendarID;
+    private Context mContext;
+    private boolean serviceMode = false;
 
     CalendarAPITask(GoogleAccountCredential credential, MainActivity activityCompat, ProgressDialog progressDialog, Snackbar snackbar) {
         mActivityCompat = activityCompat;
@@ -56,12 +59,28 @@ class CalendarAPITask extends AsyncTask<CustomListViewAdapter, Void, List<String
                 .setApplicationName("Fitsleep2Calendar")
                 .build();
     }
+    CalendarAPITask(GoogleAccountCredential credential, Context context ) {
+        serviceMode = true;
+        mContext = context;
+        HttpTransport transport = AndroidHttp.newCompatibleTransport();
+        JsonFactory jsonFactory = JacksonFactory.getDefaultInstance();
+        mService = new com.google.api.services.calendar.Calendar.Builder(
+                transport, jsonFactory, credential)
+                .setApplicationName("Fitsleep2Calendar")
+                .build();
+    }
+
 
     @Override
-    protected List<String> doInBackground(CustomListViewAdapter... params) {
+    protected List<Event> doInBackground(List<Event>... params) {
 
         //저장된 캘린더 ID를 가져옴.
-        SharedPreferences preferences = mActivityCompat.getPreferences(Context.MODE_PRIVATE);
+        SharedPreferences preferences;
+        if(serviceMode){
+            preferences = mContext.getSharedPreferences(mContext.getPackageName() + "_preferences",Context.MODE_PRIVATE);
+        } else {
+            preferences = mActivityCompat.getPreferences(Context.MODE_PRIVATE);
+        }
         sleepCalendarID = preferences.getString("sleepCalendarID","");
 
         try{
@@ -89,16 +108,26 @@ class CalendarAPITask extends AsyncTask<CustomListViewAdapter, Void, List<String
 
         // Add Event to Calendar
 
-//        List<Event> eventList = params[0];
-        CustomListViewAdapter listData = params[0];
-        for(CustomListViewAdapter.CustomListData eventData : listData.getListData()){
+//        CustomListViewAdapter listData = params[0];
+//        for(CustomListViewAdapter.CustomListData eventData : listData.getListData()){
+//            try {
+//                Log.d(TAG, "doInBackground: Try add Event " + eventData.getStartTime() + " ~ " + eventData.getEndTime());
+//                if(eventData.getisExclude()){
+//                    continue;
+//                }
+//                Event event = makeEvent("수면", null , eventData.getFormattedStartTime(), eventData.getFormattedEndTime(), "Asia/Seoul");
+//                deleteEventList_InTime(sleepCalendarID, event);
+//                addEvent(sleepCalendarID, event, false);
+//
+//            } catch (IOException e) {
+//                e.printStackTrace();
+//            }
+//        }
+        List<Event> eventList = params[0];
+        for(Event event : eventList){
             try {
                 // Todo 완전히 똑같은 이벤트는 남기고, 시간이 다른 이벤트만 삭제후 추가 혹은 Update할 수 있도록 수정해주어야한다.
-                Log.d(TAG, "doInBackground: Try add Event " + eventData.getStartTime() + " ~ " + eventData.getEndTime());
-                if(eventData.getisExclude()){
-                    continue;
-                }
-                Event event = makeEvent("수면", null , eventData.getFormattedStartTime(), eventData.getFormattedEndTime(), "Asia/Seoul");
+                Log.d(TAG, "doInBackground: Try add Event " + event.getStart().toString() + " ~ " + event.getEnd().toString());
                 deleteEventList_InTime(sleepCalendarID, event);
                 addEvent(sleepCalendarID, event, false);
 
@@ -106,7 +135,7 @@ class CalendarAPITask extends AsyncTask<CustomListViewAdapter, Void, List<String
                 e.printStackTrace();
             }
         }
-        return null;
+        return eventList;
     }
 
     //CalendarList를 받아옴
@@ -260,39 +289,49 @@ class CalendarAPITask extends AsyncTask<CustomListViewAdapter, Void, List<String
 
     @Override
     protected void onPreExecute() {
-        mProgress.setMessage("Calling Google Calendar API ...");
-        mProgress.show();
+        if(!serviceMode){
+            mProgress.setMessage("Calling Google Calendar API ...");
+            mProgress.show();
+        }
     }
 
     @Override
-    protected void onPostExecute(List<String> output) {
-        mProgress.hide();
+    protected void onPostExecute(List<Event> output) {
+        if(!serviceMode) {
+            mProgress.hide();
+        } else {
+//            Toast.makeText(mContext, "수면기록 " + output.size() + "개 등록됨", Toast.LENGTH_SHORT).show();
+        }
 //        if (output == null || output.size() == 0) {
 //            mSnackbar.setText("No results returned.").show();
 //        } else {
 //            output.add(0, "Data retrieved using the Google Calendar API:");
 //            mSnackbar.setText(TextUtils.join("\n", output)).show();
 //        }
+
+        this.cancel(true);
     }
 
     @Override
     protected void onCancelled() {
-        mProgress.hide();
-        if (mLastError != null) {
-            if (mLastError instanceof GooglePlayServicesAvailabilityIOException) {
-                mActivityCompat.showGooglePlayServicesAvailabilityErrorDialog(
-                        ((GooglePlayServicesAvailabilityIOException) mLastError)
-                                .getConnectionStatusCode());
-            } else if (mLastError instanceof UserRecoverableAuthIOException) {
-                mActivityCompat.startActivityForResult(
-                        ((UserRecoverableAuthIOException) mLastError).getIntent(),
-                        MainActivity.REQUEST_AUTHORIZATION);
+        if(!serviceMode){
+            mProgress.hide();
+            if (mLastError != null) {
+                if (mLastError instanceof GooglePlayServicesAvailabilityIOException) {
+                    mActivityCompat.showGooglePlayServicesAvailabilityErrorDialog(
+                            ((GooglePlayServicesAvailabilityIOException) mLastError)
+                                    .getConnectionStatusCode());
+                } else if (mLastError instanceof UserRecoverableAuthIOException) {
+                    mActivityCompat.startActivityForResult(
+                            ((UserRecoverableAuthIOException) mLastError).getIntent(),
+                            MainActivity.REQUEST_AUTHORIZATION);
+                } else {
+                    Toast.makeText(mActivityCompat,"The following error occurred:\n"
+                            + mLastError.getMessage(), Toast.LENGTH_SHORT).show();
+                }
             } else {
-                mSnackbar.setText("The following error occurred:\n"
-                        + mLastError.getMessage()).show();
+                Toast.makeText(mActivityCompat,"Request cancelled.", Toast.LENGTH_SHORT).show();
             }
-        } else {
-            mSnackbar.setText("Request cancelled.").show();
         }
     }
 }

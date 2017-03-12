@@ -2,32 +2,45 @@ package com.bungabear.fitsleep2calendar;
 
 import android.Manifest;
 import android.accounts.AccountManager;
+import android.app.AlarmManager;
 import android.app.Dialog;
+import android.app.PendingIntent;
 import android.app.ProgressDialog;
+import android.app.TimePickerDialog;
 import android.content.Context;
+import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
 import android.os.Bundle;
+import android.os.SystemClock;
 import android.support.annotation.NonNull;
 import android.support.design.widget.Snackbar;
+import android.support.v7.app.AlertDialog;
 import android.support.v7.app.AppCompatActivity;
 import android.util.Log;
+import android.view.Menu;
+import android.view.MenuItem;
 import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
+import android.widget.LinearLayout;
 import android.widget.ListView;
+import android.widget.TimePicker;
+import android.widget.Toast;
 
 import com.google.android.gms.common.ConnectionResult;
 import com.google.android.gms.common.GoogleApiAvailability;
 import com.google.android.gms.common.api.GoogleApiClient;
 import com.google.api.client.googleapis.extensions.android.gms.auth.GoogleAccountCredential;
+import com.google.api.client.util.DateTime;
 import com.google.api.client.util.ExponentialBackOff;
 import com.google.api.services.calendar.CalendarScopes;
 import com.google.api.services.calendar.model.Event;
 
 import java.util.Arrays;
+import java.util.Calendar;
 import java.util.List;
 
 import pub.devrel.easypermissions.AfterPermissionGranted;
@@ -35,23 +48,30 @@ import pub.devrel.easypermissions.EasyPermissions;
 
 public class MainActivity extends AppCompatActivity
         implements EasyPermissions.PermissionCallbacks, View.OnClickListener {
-    GoogleAccountCredential mCredential;
-    private ListView listView;
-    private Button mGetFitData, mPutCalendarEvent;
-    private GoogleApiClient client = null;
-    private CustomListViewAdapter mListViewAdapter;
-    private List<Event> eventList;
-    public Snackbar snackbar;
-    public ProgressDialog mProgress;
 
+    static final String TAG = "Fitsleep2Calendar";
+    private ListView listView;
+    public Snackbar snackbar;
+    private Button mGetFitData, mPutCalendarEvent;
+    private CustomListViewAdapter mListViewAdapter;
+    private ProgressDialog mProgress;
+    private static SharedPreferences sharedPreferences;
+    private static SharedPreferences.Editor preferencesEditor;
+
+    // For GoogleFit
+    private GoogleApiClient googleApiClient = null;
+
+    // For Google Calendar
+    private GoogleAccountCredential mCredential;
     static final int REQUEST_ACCOUNT_PICKER = 1000;
     static final int REQUEST_AUTHORIZATION = 1001;
     static final int REQUEST_GOOGLE_PLAY_SERVICES = 1002;
     static final int REQUEST_PERMISSION_GET_ACCOUNTS = 1003;
-    static final String TAG = "Fitsleep2Calendar";
-
     private static final String PREF_ACCOUNT_NAME = "accountName";
     private static final String[] SCOPES = {CalendarScopes.CALENDAR};
+
+    // BroadCast Action
+    private static final String AUTOSYNC_ACTION = "com.bungabear.fitsleep2calendar.F2CAutoSync";
 
     /**
      * Create the main activity.
@@ -62,7 +82,11 @@ public class MainActivity extends AppCompatActivity
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
-        // Initialize credentials and service object.
+
+        // Initialize credentials, client and objects.
+        sharedPreferences = getPreferences(MODE_PRIVATE);
+        preferencesEditor = sharedPreferences.edit();
+        googleApiClient = FitAPITask.buildGoogleFitClient(getApplicationContext());
         mCredential = GoogleAccountCredential.usingOAuth2(
                 getApplicationContext(), Arrays.asList(SCOPES))
                 .setBackOff(new ExponentialBackOff());
@@ -71,7 +95,7 @@ public class MainActivity extends AppCompatActivity
 
     }
 
-    //ActivityView 초기화
+    // Init. Views
     private void initView() {
 
         listView = (ListView)findViewById(R.id.listivew);
@@ -90,7 +114,66 @@ public class MainActivity extends AppCompatActivity
         mPutCalendarEvent.setTag(getString(R.string.call_api));
         mPutCalendarEvent.setOnClickListener(this);
 
+    }
 
+    @Override
+    public boolean onCreateOptionsMenu(Menu menu) {
+        getMenuInflater().inflate(R.menu.main, menu);
+        return super.onCreateOptionsMenu(menu);
+    }
+
+    @Override
+    public boolean onOptionsItemSelected(MenuItem item) {
+
+        switch(item.getItemId()){
+            // AutoSync Menu
+            case R.id.item0:
+                final Context context = this;
+                final AlarmManager alarmManager = (AlarmManager) getApplicationContext().getSystemService(Context.ALARM_SERVICE);
+                Intent serviceIntent = new Intent(AUTOSYNC_ACTION);
+                serviceIntent.putExtra("accountName", sharedPreferences.getString("accountName",""));
+                final PendingIntent pendingIntent = PendingIntent.getBroadcast(getApplicationContext(), 0, serviceIntent, 0);
+
+                TimePickerDialog timePickerDialog = new TimePickerDialog(this, new TimePickerDialog.OnTimeSetListener() {
+                    @Override
+                    public void onTimeSet(TimePicker view, int hourOfDay, int minute) {
+                        // Check Google Fit and Calendar Account setting.
+                        if ((sharedPreferences.getString(PREF_ACCOUNT_NAME, null) != null )|| googleApiClient == null) {
+
+                            // Todo make select dialog to choose auto sync time.
+                            Calendar calendar = Calendar.getInstance();
+                            int year = calendar.get(Calendar.YEAR);
+                            int month = calendar.get(Calendar.MONTH);   // 0~11
+                            int day = calendar.get(Calendar.DAY_OF_MONTH);
+                            if(calendar.get(Calendar.HOUR_OF_DAY) > hourOfDay){
+                                day++;
+                            }
+                            calendar.set(year,month,day,hourOfDay,minute);
+                            alarmManager.setInexactRepeating(AlarmManager.RTC,
+                                    calendar.getTimeInMillis(),
+                                    AlarmManager.INTERVAL_DAY, pendingIntent);
+//                            alarmManager.set(AlarmManager.RTC,
+//                                SystemClock.currentThreadTimeMillis()+5000, pendingIntent);
+                            Toast.makeText(context, "" + new DateTime(calendar.getTimeInMillis()).toString().substring(0,16).replace('T', ' ') + "부터 매일 동기화가 시작됩니다.", Toast.LENGTH_SHORT).show();
+                            Log.i(TAG, "setAlarm : " + new DateTime(calendar.getTimeInMillis()).toString());
+                        } else {
+                            Toast.makeText(context, "설정이 되지 않았습니다. \n수동 동기화를 한번 해주세요", Toast.LENGTH_SHORT).show();
+                        }
+                    }
+                }, 0, 0, false);
+                timePickerDialog.setCancelable(false);
+                timePickerDialog.setOnCancelListener(new DialogInterface.OnCancelListener() {
+                    @Override
+                    public void onCancel(DialogInterface dialog) {
+                        // Cancel Alarm by Finding Intent Action
+                        alarmManager.cancel(pendingIntent);
+                        Toast.makeText(context, "자동동기화를 해제하였습니다.", Toast.LENGTH_SHORT).show();
+                    }
+                });
+                timePickerDialog.show();
+                break;
+        }
+        return super.onOptionsItemSelected(item);
     }
 
     /**
@@ -100,6 +183,8 @@ public class MainActivity extends AppCompatActivity
      * of the preconditions are not satisfied, the app will prompt the user as
      * appropriate.
      */
+
+
     private void getResultsFromApi() {
         if (!isGooglePlayServicesAvailable()) {
             acquireGooglePlayServices();
@@ -108,7 +193,7 @@ public class MainActivity extends AppCompatActivity
         } else if (!isDeviceOnline()) {
             snackbar.setText(R.string.no_network).show();
         } else {
-            new CalendarAPITask(mCredential, this, mProgress, snackbar).execute(mListViewAdapter);
+            new CalendarAPITask(mCredential, this, mProgress, snackbar).execute(mListViewAdapter.getEventList());
         }
     }
 
@@ -306,22 +391,19 @@ public class MainActivity extends AppCompatActivity
         switch (v.getId()){
             case R.id.sync_calendar:
                 mPutCalendarEvent.setEnabled(false);
-                if(eventList != null){
+                if(mListViewAdapter.getCount() != 0){
                     getResultsFromApi();
                 } else {
-                    snackbar.setText("Fit데이터를 먼저 불러와주세요").show();
+                    snackbar.setText("유효한 Fit데이터를 먼저 불러와주세요").show();
                 }
                 mPutCalendarEvent.setEnabled(true);
                 break;
             case R.id.get_fitdata:
                 mGetFitData.setEnabled(false);
-                if (client == null) {
-                    final MainActivity mainActivity = this;
-                    client = FitAPITask.buildGoogleFitClient(getApplicationContext(), mainActivity);
-                }
+
                 String syncDays = ((EditText)findViewById(R.id.sync_days)).getText().toString();
                 if(!syncDays.equals("")){
-                    new FitAPITask(client, mProgress, mListViewAdapter).execute(syncDays);
+                    new FitAPITask(googleApiClient, mProgress, mListViewAdapter).execute(syncDays);
                 } else {
                     snackbar.setText("동기화할 일 수를 입력해 주세요").show();
                 }
@@ -330,7 +412,18 @@ public class MainActivity extends AppCompatActivity
                 break;
         }
     }
-    public void setEventList(List<Event> eventList){
-        this.eventList = eventList;
+
+    @Override
+    protected void onStart() {
+        super.onStart();
+        googleApiClient.connect();
+        Log.d(TAG, "onStart: GoogleFit Client Connected");
+    }
+
+    @Override
+    protected void onStop() {
+        super.onStop();
+        googleApiClient.disconnect();
+        Log.d(TAG, "onStop: GoogleFit Client Disconnected");
     }
 }

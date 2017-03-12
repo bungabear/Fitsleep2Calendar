@@ -9,7 +9,12 @@ import android.widget.CheckBox;
 import android.widget.CompoundButton;
 import android.widget.TextView;
 
+import com.google.api.client.util.DateTime;
+import com.google.api.services.calendar.model.Event;
+import com.google.api.services.calendar.model.EventDateTime;
+
 import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Created by Minjae on 2017-02-27.
@@ -24,10 +29,16 @@ class CustomListViewAdapter extends BaseAdapter{
         mContext = context;
     }
 
-    public void addItem(String id, String startTime, String endTime, boolean isExclude, String event_ID){
-        if(event_ID == null) event_ID = "x";
-        CustomListData addInfo = new CustomListData(id, startTime, endTime,isExclude, event_ID);
-
+    public void addItem(String id, Event event, boolean isExclude, String event_ID){
+        CustomListData addInfo = new CustomListData(id, event,isExclude, event_ID);
+        mListData.add(addInfo);
+    }
+    public void addItem(String id, Event event, boolean isExclude){
+        CustomListData addInfo = new CustomListData(id, event,isExclude);
+        mListData.add(addInfo);
+    }
+    public void addItem(String id, Event event){
+        CustomListData addInfo = new CustomListData(id, event);
         mListData.add(addInfo);
     }
 
@@ -78,8 +89,8 @@ class CustomListViewAdapter extends BaseAdapter{
         }
         CustomListData listData = mListData.get(position);
         holder.id.setText(listData.id);
-        holder.startTime.setText(listData.startTime);
-        holder.endTime.setText(listData.endTime);
+        holder.startTime.setText(listData.getPrettyStartTime());
+        holder.endTime.setText(listData.getPrettyEndTime());
         holder.isExclude.setChecked(!(listData.isExclude));
         holder.event_ID.setText(listData.event_ID);
         holder.isExclude.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
@@ -91,6 +102,19 @@ class CustomListViewAdapter extends BaseAdapter{
 
         return convertView;
     }
+
+    public List<Event> getEventList(){
+        List<Event> eventList = new ArrayList<>();
+        for(CustomListData listData : mListData){
+            if(listData.isExclude()) {
+                continue;
+            } else {
+                eventList.add(listData.getEvent());
+            }
+        }
+        return eventList;
+    }
+
     //ListView Item 뷰를 담는 클래스
     private class CustomViewHolder {
         private TextView id ;
@@ -103,30 +127,31 @@ class CustomListViewAdapter extends BaseAdapter{
     //ListView Item 객체들이 가질 데이터를 담는 클래스
     public class CustomListData {
         private String id;
-        private String startTime;
-        private String endTime;
+        private Event event;
         private String event_ID;
         private boolean isExclude;
 
-        CustomListData(String i, String sT, String eT, boolean iE, String eID){
+        CustomListData(String i, Event eV, boolean iE, String eID){
             id = i;
-            startTime = sT;
-            endTime = eT;
+            event = eV;
             isExclude = iE;
             event_ID = eID;
         }
 
+        CustomListData(String i, Event eV, boolean iE){
+            this(i, eV, iE, eV.getStart().getDateTime().toString().substring(0,10) + " ~ " + eV.getEnd().getDateTime().toString().substring(0,10));
+        }
+        CustomListData(String i, Event eV){
+            this(i, eV, false);
+        }
+        public Event getEvent(){
+            return event;
+        }
         public String getStartTime(){
-            return startTime;
+            return event.getStart().toString();
         }
         public String getEndTime(){
-            return endTime;
-        }
-        public String getFormattedStartTime(){
-            return event_ID.split(" ~ ")[0] + "T" + startTime.substring(6) + ":00+09:00";
-        }
-        public String getFormattedEndTime(){
-            return event_ID.split(" ~ ")[1] + "T" + endTime.substring(6) + ":00+09:00";
+            return event.getEnd().toString();
         }
         public String getEvent_ID(){
             return event_ID;
@@ -134,8 +159,14 @@ class CustomListViewAdapter extends BaseAdapter{
         public String getID(){
             return id;
         }
-        public boolean getisExclude(){
+        public boolean isExclude(){
             return isExclude;
+        }
+        public String getPrettyStartTime(){
+            return event.getStart().toString().substring(11,19);
+        }
+        public String getPrettyEndTime(){
+            return event.getEnd().toString().substring(11,19);
         }
     }
 
