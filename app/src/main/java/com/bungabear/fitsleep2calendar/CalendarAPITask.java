@@ -126,10 +126,15 @@ class CalendarAPITask extends AsyncTask<List<Event>, Void, List<Event>> {
         List<Event> eventList = params[0];
         for(Event event : eventList){
             try {
-                // Todo 완전히 똑같은 이벤트는 남기고, 시간이 다른 이벤트만 삭제후 추가 혹은 Update할 수 있도록 수정해주어야한다.
+                // Todo 시간이 다른 이벤트는 하나만 남기고 삭제후 Update 할 수 있도록 수정해주어야한다.
                 Log.d(TAG, "doInBackground: Try add Event " + event.getStart().toString() + " ~ " + event.getEnd().toString());
-                deleteEventList_InTime(sleepCalendarID, event);
-                addEvent(sleepCalendarID, event, false);
+//                deleteEventList_InTime(sleepCalendarID, event);
+                if(addEvent(sleepCalendarID, event, true)){
+                    // Success to add event.
+                } else {
+                    // Same event already exists.
+//                    eventList.remove(event);
+                }
 
             } catch (IOException e) {
                 e.printStackTrace();
@@ -197,37 +202,45 @@ class CalendarAPITask extends AsyncTask<List<Event>, Void, List<Event>> {
 
     //이벤트를 캘린더에 등록하는 함수. 이벤트의 등록 결과를 String형태로 반환한다.
     //캘린더 ID, 이벤트, 중복 이벤트 체크여부를 받아옴.
-    private String addEvent(String calendarID, Event event, boolean duplicationCheck) throws IOException {
+    private boolean addEvent(String calendarID, Event event, boolean duplicationCheck) throws IOException {
         //ID가 없으면 주 캘린더에 등록한다
         if (calendarID == null) calendarID = "primary";
         Log.d(TAG, "addEvent: event added " + event.getStart().toString()+ " " + event.getEnd().toString());
         //중복체크여부와 이벤트의 중복여부를 구분한다.
-        if (duplicationCheck && isEventExist(calendarID, event)) {
+        int existNum = isEventExist(calendarID, event);
+        if (duplicationCheck &&  existNum > 1) {
             //중복 체크를 하고, 일정이 중복될경우
-            return String.format("%s : %s~%s isExist", event.getSummary(), event.getStart().getDateTime().toString(), event.getEnd().getDateTime().toString());
-        } else {
-            //중복되지 않거나 중복체크를 안할경우.
-            event = mService.events().insert(calendarID, event).execute();
-            return String.format("%s : %s~%s is Success", event.getSummary(), event.getStart().getDateTime().toString(), event.getEnd().getDateTime().toString());
+            if(existNum == 1){
+                // One Event is exists
+                return false;
+            } else {
+                // if more events are exist, delete all
+                deleteEventList_InTime(calendarID, event);
+            }
         }
+        // Don't check duplicated
+        event = mService.events().insert(calendarID, event).execute();
+        return true;
     }
 
     //동일한 일정이 존재하는지 체크한다.
-    private boolean isEventExist(String calendarID, Event event) throws IOException {
-        String eventName = event.getSummary();
-        String minTime;
-        String maxTime;
+    private int isEventExist(String calendarID, Event event) throws IOException {
         Events events = mService.events().list(calendarID).execute();
         List<Event> items = events.getItems();
-        for (Event gettedEvent : items) {
-            //이름, 시작/종료가 같은 이벤트가 있는지
-            if (gettedEvent.getSummary().equals(event.getSummary())
-                    && gettedEvent.getStart().equals(event.getStart())
-                    && gettedEvent.getEnd().equals(event.getEnd())) {
-                return true;
-            }
+        // Some events are exist in time range
+        if(items.size() > 1){
+            return 2;
+
+        // One event is exactly same.
+        } else if(items.get(0).getSummary().equals(event.getSummary())
+                && items.get(0).getStart().equals(event.getStart())
+                && items.get(0).getEnd().equals(event.getEnd())){
+            return 1;
+
+        // Nothing is exist;
+        } else {
+            return 0;
         }
-        return false;
     }
 
     //변동 가능한 범위 내에서 동일한 일정을 모두 삭제한다
@@ -300,7 +313,7 @@ class CalendarAPITask extends AsyncTask<List<Event>, Void, List<Event>> {
         if(!serviceMode) {
             mProgress.hide();
         } else {
-//            Toast.makeText(mContext, "수면기록 " + output.size() + "개 등록됨", Toast.LENGTH_SHORT).show();
+            Toast.makeText(mContext, "수면기록 " + output.size() + "개 등록됨", Toast.LENGTH_SHORT).show();
         }
 //        if (output == null || output.size() == 0) {
 //            mSnackbar.setText("No results returned.").show();

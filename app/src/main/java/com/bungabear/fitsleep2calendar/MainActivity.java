@@ -27,6 +27,7 @@ import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ListView;
+import android.widget.TextView;
 import android.widget.TimePicker;
 import android.widget.Toast;
 
@@ -39,8 +40,10 @@ import com.google.api.client.util.ExponentialBackOff;
 import com.google.api.services.calendar.CalendarScopes;
 import com.google.api.services.calendar.model.Event;
 
+import java.text.SimpleDateFormat;
 import java.util.Arrays;
 import java.util.Calendar;
+import java.util.Date;
 import java.util.List;
 
 import pub.devrel.easypermissions.AfterPermissionGranted;
@@ -70,9 +73,9 @@ public class MainActivity extends AppCompatActivity
     private static final String PREF_ACCOUNT_NAME = "accountName";
     private static final String[] SCOPES = {CalendarScopes.CALENDAR};
 
-    // BroadCast Action
+    // For AutoSync
     private static final String AUTOSYNC_ACTION = "com.bungabear.fitsleep2calendar.F2CAutoSync";
-
+    private TextView autoSyncStateView;
     /**
      * Create the main activity.
      *
@@ -97,7 +100,6 @@ public class MainActivity extends AppCompatActivity
 
     // Init. Views
     private void initView() {
-
         listView = (ListView)findViewById(R.id.listivew);
         mListViewAdapter = new CustomListViewAdapter(this);
         listView.setAdapter(mListViewAdapter);
@@ -113,6 +115,15 @@ public class MainActivity extends AppCompatActivity
         mPutCalendarEvent.setText("캘린더로 보내기");
         mPutCalendarEvent.setTag(getString(R.string.call_api));
         mPutCalendarEvent.setOnClickListener(this);
+
+        autoSyncStateView = (TextView)findViewById(R.id.syncText);
+        if(sharedPreferences.getBoolean("AutoSync",false)){
+            int hour = sharedPreferences.getInt("AutoSyncHour",0), minute = sharedPreferences.getInt("AutoSyncMinute",0);
+            String time = String.format("%02d:%02d",hour,minute);
+            autoSyncStateView.setText("Sync automatically at " + time + " everyday.");
+        } else {
+            autoSyncStateView.setText("AutoSync is Disabled");
+        }
 
     }
 
@@ -154,8 +165,14 @@ public class MainActivity extends AppCompatActivity
                                     AlarmManager.INTERVAL_DAY, pendingIntent);
 //                            alarmManager.set(AlarmManager.RTC,
 //                                SystemClock.currentThreadTimeMillis()+5000, pendingIntent);
+                            String time = String.format("%02d:%02d",hourOfDay,minute);
+                            autoSyncStateView.setText("Sync automatically at " + time + " everyday.");
                             Toast.makeText(context, "" + new DateTime(calendar.getTimeInMillis()).toString().substring(0,16).replace('T', ' ') + "부터 매일 동기화가 시작됩니다.", Toast.LENGTH_SHORT).show();
                             Log.i(TAG, "setAlarm : " + new DateTime(calendar.getTimeInMillis()).toString());
+                            preferencesEditor.putBoolean("AutoSync", true);
+                            preferencesEditor.putInt("AutoSyncHour", hourOfDay);
+                            preferencesEditor.putInt("AutoSyncMinute",minute);
+                            preferencesEditor.apply();
                         } else {
                             Toast.makeText(context, "설정이 되지 않았습니다. \n수동 동기화를 한번 해주세요", Toast.LENGTH_SHORT).show();
                         }
@@ -168,11 +185,15 @@ public class MainActivity extends AppCompatActivity
                         // Cancel Alarm by Finding Intent Action
                         alarmManager.cancel(pendingIntent);
                         Toast.makeText(context, "자동동기화를 해제하였습니다.", Toast.LENGTH_SHORT).show();
+                        autoSyncStateView.setText("AutoSync is Disabled");
+                        preferencesEditor.putBoolean("AutoSync", false);
+                        preferencesEditor.apply();
                     }
                 });
                 timePickerDialog.show();
                 break;
         }
+
         return super.onOptionsItemSelected(item);
     }
 

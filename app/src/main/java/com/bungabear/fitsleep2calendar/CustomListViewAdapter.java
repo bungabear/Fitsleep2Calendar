@@ -163,10 +163,10 @@ class CustomListViewAdapter extends BaseAdapter{
             return isExclude;
         }
         public String getPrettyStartTime(){
-            return event.getStart().toString().substring(11,19);
+            return event.getStart().getDateTime().toString().substring(11,19);
         }
         public String getPrettyEndTime(){
-            return event.getEnd().toString().substring(11,19);
+            return event.getEnd().getDateTime().toString().substring(11,19);
         }
     }
 
