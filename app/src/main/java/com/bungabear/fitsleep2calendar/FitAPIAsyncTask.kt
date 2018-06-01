@@ -2,35 +2,29 @@ package com.bungabear.fitsleep2calendar
 
 import android.os.AsyncTask
 import android.view.View
-import android.widget.ArrayAdapter
-import android.widget.ProgressBar
 import com.google.android.gms.fitness.Fitness
-import com.google.android.gms.fitness.data.DataPoint
+import com.google.android.gms.fitness.data.DataSet
 import com.google.android.gms.fitness.data.DataType
 import com.google.android.gms.fitness.request.DataReadRequest
-import com.google.android.gms.fitness.result.DataReadResult
 import kotlinx.android.synthetic.main.activity_main.*
+import kotlinx.android.synthetic.main.activity_main.view.*
 import java.lang.ref.WeakReference
-import java.text.DateFormat
 import java.util.*
 import java.util.concurrent.TimeUnit
 import kotlin.collections.ArrayList
 
-class FitAPIAsyncTask (private val parentRef : WeakReference<MainActivity>) : AsyncTask<Long, Int, DataReadResult>() {
+class FitAPIAsyncTask (private val parentRef : WeakReference<MainActivity>) : AsyncTask<Long, Int, ArrayList<SleepEvent>>() {
 
-//    private val LOG_TAG = "fs2c"
-    private val progressRef: WeakReference<ProgressBar> = WeakReference(parentRef.get()!!.progress)
-    private val adapter : ArrayAdapter<String>? = parentRef.get()!!.getAdapter()
+    //    private val LOG_TAG = "fs2c"
+    private val progressRef = WeakReference(parentRef.get()!!.progressLayout)
+    private val adapter = parentRef.get()!!.getAdapter()
+    private var events  = ArrayList<SleepEvent>()
 
     override fun onPreExecute() {
-        val progressBar =  progressRef.get()
-        if(progressBar != null){
-            progressBar.visibility = View.VISIBLE
-            progressBar.animate()
-        }
+        showProgressBar()
     }
 
-    override fun doInBackground(vararg params: Long?): DataReadResult {
+    override fun doInBackground(vararg params: Long?): ArrayList<SleepEvent> {
 
         val cal = Calendar.getInstance()
         val now = Date()
@@ -48,44 +42,79 @@ class FitAPIAsyncTask (private val parentRef : WeakReference<MainActivity>) : As
         client.connect()
         val result = Fitness.HistoryApi.readData(client,dataReadRequest).await()
         client.disconnect()
-        return result
+        events = parseDataPoints(result.dataSets)
+        events = bindSleepEvent(events)
+
+        // TODO Drop first element for first and last split sleep event
+
+        return events
+    }
+
+    override fun onPostExecute(result: ArrayList<SleepEvent>) {
+        result.forEach { adapter.add("${it.getStartAsString()} ~ ${it.getEndAsString()}") }
+        adapter.notifyDataSetChanged()
+        hideProgressBar()
     }
 
     override fun onCancelled() {
-        val progressBar =  progressRef.get()
-        if(progressBar != null) {
-            progressBar.visibility = View.GONE
+        hideProgressBar()
+    }
+
+    private fun showProgressBar(){
+        val progressLayout =  progressRef.get()
+        if(progressLayout != null) {
+            progressLayout.visibility = View.VISIBLE
+            progressLayout.progress.animate()
         }
     }
 
-    override fun onPostExecute(result: DataReadResult) {
-        result.dataSets.forEach {
+    private fun hideProgressBar(){
+        val progressLayout =  progressRef.get()
+        if(progressLayout != null) {
+            progressLayout.visibility = View.GONE
+        }
+    }
+
+    private fun parseDataPoints(dss : List<DataSet>) : ArrayList<SleepEvent>{
+        val list = ArrayList<SleepEvent>()
+        dss.forEach {
             ds -> ds.dataPoints.forEach {
-                dp-> parseDataPoint(dp)
+            dp->
+            val activityNum : Int = dp.getValue(dp.dataType.fields[0]).asInt()
+            if(activityNum == 72 || activityNum in 109..112){
+                val start = dp.getStartTime(TimeUnit.MILLISECONDS)
+                val end = dp.getEndTime(TimeUnit.MILLISECONDS)
+                val fields : ArrayList<String> = ArrayList()
+                for (field in dp.dataType.fields) {
+                    fields.add(field.name + " : " + dp.getValue(field))
+                }
+                var fieldStr = ""
+                fields.forEach { fieldStr += it + "\n" }
+                list.add(SleepEvent(start, end))
             }
         }
-        adapter!!.notifyDataSetChanged()
-        val progressBar =  progressRef.get()
-        if(progressBar != null) {
-            progressBar.visibility = View.GONE
         }
+        return list
     }
 
-    private fun parseDataPoint(dp : DataPoint){
-        val activityNum : Int = dp.getValue(dp.dataType.fields[0]).asInt()
-        if(activityNum == 72 || activityNum in 109..112){
-            val dateFormat = DateFormat.getTimeInstance()
-            //val type = dp.dataType.name
-            val start = dateFormat.format(dp.getStartTime(TimeUnit.MILLISECONDS))
-            val end = dateFormat.format(dp.getEndTime(TimeUnit.MILLISECONDS))
-            val fields : ArrayList<String> = ArrayList()
-            for (field in dp.dataType.fields) {
-                fields.add(field.name + " : " + dp.getValue(field))
+    private fun bindSleepEvent(events : ArrayList<SleepEvent>) : ArrayList<SleepEvent>{
+        val bindThreshold = 1000*60*10
+        val bindEvents = ArrayList<SleepEvent>()
+
+        events.forEach { event->
+            if(bindEvents.count() == 0){
+                bindEvents.add(event)
             }
-            var fieldStr = ""
-            fields.forEach { fieldStr += it + "\n" }
-            adapter!!.add("$start ~ $end $fieldStr")
+            else {
+                if(event.start - bindEvents.last().end <= bindThreshold){
+                    bindEvents.last().end = event.end
+                }
+                else {
+                    bindEvents.add(event)
+                }
+            }
         }
-    }
 
+        return bindEvents
+    }
 }
