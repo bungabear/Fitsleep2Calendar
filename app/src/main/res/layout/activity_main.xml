@@ -22,6 +22,7 @@
         app:layout_constraintEnd_toEndOf="@+id/lv"
         app:layout_constraintStart_toStartOf="@+id/lv"
         app:layout_constraintTop_toTopOf="@+id/lv"
+        android:visibility="gone"
         android:background="#88000000"
         >
 

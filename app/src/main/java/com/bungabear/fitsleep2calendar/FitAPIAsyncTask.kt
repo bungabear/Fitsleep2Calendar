@@ -1,7 +1,11 @@
 package com.bungabear.fitsleep2calendar
 
+import android.content.Context
 import android.os.AsyncTask
 import android.view.View
+import com.google.android.gms.common.Scopes
+import com.google.android.gms.common.api.GoogleApiClient
+import com.google.android.gms.common.api.Scope
 import com.google.android.gms.fitness.Fitness
 import com.google.android.gms.fitness.data.DataSet
 import com.google.android.gms.fitness.data.DataType
@@ -13,12 +17,13 @@ import java.util.*
 import java.util.concurrent.TimeUnit
 import kotlin.collections.ArrayList
 
-class FitAPIAsyncTask (private val parentRef : WeakReference<MainActivity>) : AsyncTask<Long, Int, ArrayList<SleepEvent>>() {
+class FitAPIAsyncTask (private val contextRef : WeakReference<MainActivity>) : AsyncTask<Long, Int, ArrayList<SleepEvent>>() {
 
     //    private val LOG_TAG = "fs2c"
-    private val progressRef = WeakReference(parentRef.get()!!.progressLayout)
-    private val adapter = parentRef.get()!!.getAdapter()
+    private val progressRef = WeakReference(contextRef.get()!!.progressLayout)
+    private val adapter = contextRef.get()!!.getAdapter()
     private var events  = ArrayList<SleepEvent>()
+    private lateinit var fitApiClient : GoogleApiClient
 
     override fun onPreExecute() {
         showProgressBar()
@@ -37,15 +42,14 @@ class FitAPIAsyncTask (private val parentRef : WeakReference<MainActivity>) : As
                 .read(DataType.TYPE_ACTIVITY_SEGMENT)
                 .setTimeRange(startTime, endTime, TimeUnit.MILLISECONDS)
                 .build()
-
-        val client = parentRef.get()!!.getGoogleFitClient()
-        client.connect()
-        val result = Fitness.HistoryApi.readData(client,dataReadRequest).await()
-        client.disconnect()
+        fitApiClient = getGoogleFitClient()
+        fitApiClient.connect()
+        val result = Fitness.HistoryApi.readData(fitApiClient,dataReadRequest).await()
+        fitApiClient.disconnect()
         events = parseDataPoints(result.dataSets)
         events = bindSleepEvent(events)
 
-        // TODO Drop first element for first and last split sleep event
+        // TODO Drop first and last element that split event by search time
 
         return events
     }
@@ -54,6 +58,8 @@ class FitAPIAsyncTask (private val parentRef : WeakReference<MainActivity>) : As
         result.forEach { adapter.add("${it.getStartAsString()} ~ ${it.getEndAsString()}") }
         adapter.notifyDataSetChanged()
         hideProgressBar()
+        val calendarAsyncTask = CalendarAsyncTask(contextRef)
+        calendarAsyncTask.execute()
     }
 
     override fun onCancelled() {
@@ -114,7 +120,32 @@ class FitAPIAsyncTask (private val parentRef : WeakReference<MainActivity>) : As
                 }
             }
         }
-
         return bindEvents
+    }
+
+    private fun getGoogleFitClient(): GoogleApiClient {
+            return GoogleApiClient.Builder(contextRef.get() as Context)
+                    .addApi(Fitness.HISTORY_API).addScope(Scope(Scopes.FITNESS_ACTIVITY_READ))
+                    // TODO Connection error feedback
+//                    .addConnectionCallbacks(
+//                            object : GoogleApiClient.ConnectionCallbacks {
+//                                override fun onConnected(bundle: Bundle?) {
+//                                      Log.i(LOG_TAG, "Connected!!!")
+//                                }
+//
+//                                override fun onConnectionSuspended(i: Int) {
+//
+//                                    // If your connection to the sensor gets lost at some point,
+//                                    // you'll be able to determine the reason and react to it here.
+//                                    if (i == GoogleApiClient.ConnectionCallbacks.CAUSE_NETWORK_LOST) {
+//                                        Log.i(LOG_TAG, "Connection lost.  Cause: Network Lost.")
+//                                    } else if (i == GoogleApiClient.ConnectionCallbacks.CAUSE_SERVICE_DISCONNECTED) {
+//                                        Log.i(LOG_TAG,
+//                                                "Connection lost.  Reason: Service Disconnected")
+//                                    }
+//                                }
+//                            }
+//                    )
+                    .build()
     }
 }
